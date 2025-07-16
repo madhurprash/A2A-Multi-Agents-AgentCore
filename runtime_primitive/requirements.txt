@@ -1,0 +1,7 @@
+./bedrock_agentcore-0.1.0-py3-none-any.whl
+./boto3-1.39.5-py3-none-any.whl
+./botocore-1.39.5-py3-none-any.whl
+./bedrock_agentcore_starter_toolkit-0.1.0-py3-none-any.whl
+strands-agents>=0.3.0
+strands-agents-tools>=0.1.9
+requests>=2.25.0
