@@ -5,10 +5,12 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "bedrock-agentcore>=0.0.1",
+    "bedrock-agentcore>=0.1.0",
+    "bedrock-agentcore-starter-toolkit>=0.1.0",
     "pip>=25.1.1",
-    "strands-agents>=0.3.0",
-    "strands-agents-tools>=0.1.9",
+    "pyyaml>=6.0.2",
+    "strands-agents>=1.0.0",
+    "strands-agents-tools>=0.2.1",
     "zmq>=0.0.0",
 ]
 
