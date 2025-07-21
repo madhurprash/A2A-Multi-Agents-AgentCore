@@ -1,0 +1,599 @@
+{
+  "smithy": "2.0",
+  "metadata": {
+    "suppressions": [
+      { "id": "HttpMethodSemantics", "namespace": "*" },
+      { "id": "HttpResponseCodeSemantics", "namespace": "*" }
+    ]
+  },
+  "shapes": {
+    "com.amazonaws.cloudwatchmonitoring#String": { 
+      "type": "string" 
+    },
+    "com.amazonaws.cloudwatchmonitoring#Integer": { 
+      "type": "integer" 
+    },
+    "com.amazonaws.cloudwatchmonitoring#Boolean": { 
+      "type": "boolean" 
+    },
+    
+    "com.amazonaws.cloudwatchmonitoring#AccountId": { 
+      "type": "string",
+      "traits": {
+        "smithy.api#pattern": "^[0-9]{12}$",
+        "smithy.api#documentation": "AWS Account ID (12 digits)"
+      }
+    },
+    "com.amazonaws.cloudwatchmonitoring#RoleName": { 
+      "type": "string",
+      "traits": {
+        "smithy.api#length": { "min": 1, "max": 64 },
+        "smithy.api#documentation": "IAM Role name for cross-account access"
+      }
+    },
+
+    "com.amazonaws.cloudwatchmonitoring#Dashboard": {
+      "type": "structure",
+      "members": {
+        "name": { 
+          "target": "com.amazonaws.cloudwatchmonitoring#String",
+          "traits": {
+            "smithy.api#required": {}
+          }
+        },
+        "description": { 
+          "target": "com.amazonaws.cloudwatchmonitoring#String" 
+        }
+      },
+      "traits": {
+        "smithy.api#documentation": "CloudWatch Dashboard information"
+      }
+    },
+    
+    "com.amazonaws.cloudwatchmonitoring#Alarm": {
+      "type": "structure",
+      "members": {
+        "name": { 
+          "target": "com.amazonaws.cloudwatchmonitoring#String",
+          "traits": {
+            "smithy.api#required": {}
+          }
+        },
+        "state": { 
+          "target": "com.amazonaws.cloudwatchmonitoring#String",
+          "traits": {
+            "smithy.api#required": {}
+          }
+        }
+      },
+      "traits": {
+        "smithy.api#documentation": "CloudWatch Alarm information"
+      }
+    },
+    
+    "com.amazonaws.cloudwatchmonitoring#LogEntry": {
+      "type": "structure",
+      "members": {
+        "timestamp": { 
+          "target": "com.amazonaws.cloudwatchmonitoring#String",
+          "traits": {
+            "smithy.api#required": {}
+          }
+        },
+        "message": { 
+          "target": "com.amazonaws.cloudwatchmonitoring#String",
+          "traits": {
+            "smithy.api#required": {}
+          }
+        }
+      },
+      "traits": {
+        "smithy.api#documentation": "CloudWatch Log Entry"
+      }
+    },
+    
+    "com.amazonaws.cloudwatchmonitoring#LogGroup": {
+      "type": "structure",
+      "members": {
+        "name": { 
+          "target": "com.amazonaws.cloudwatchmonitoring#String",
+          "traits": {
+            "smithy.api#required": {}
+          }
+        },
+        "arn": { 
+          "target": "com.amazonaws.cloudwatchmonitoring#String" 
+        }
+      },
+      "traits": {
+        "smithy.api#documentation": "CloudWatch Log Group information"
+      }
+    },
+    
+    "com.amazonaws.cloudwatchmonitoring#Analysis": {
+      "type": "structure",
+      "members": {
+        "summary": { 
+          "target": "com.amazonaws.cloudwatchmonitoring#String",
+          "traits": {
+            "smithy.api#required": {}
+          }
+        },
+        "errorCount": { 
+          "target": "com.amazonaws.cloudwatchmonitoring#Integer",
+          "traits": {
+            "smithy.api#required": {}
+          }
+        }
+      },
+      "traits": {
+        "smithy.api#documentation": "Log group analysis results"
+      }
+    },
+
+    "com.amazonaws.cloudwatchmonitoring#SetupCrossAccountRequest": {
+      "type": "structure",
+      "members": {
+        "accountId": {
+          "target": "com.amazonaws.cloudwatchmonitoring#AccountId",
+          "traits": { 
+            "smithy.api#required": {},
+            "smithy.api#documentation": "AWS Account ID for cross-account access"
+          }
+        },
+        "roleName": { 
+          "target": "com.amazonaws.cloudwatchmonitoring#RoleName",
+          "traits": { 
+            "smithy.api#required": {},
+            "smithy.api#documentation": "IAM Role name to assume"
+          }
+        }
+      },
+      "traits": {
+        "smithy.api#input": {},
+        "smithy.api#documentation": "Request to setup cross-account access"
+      }
+    },
+    
+    "com.amazonaws.cloudwatchmonitoring#SetupCrossAccountResponse": {
+      "type": "structure",
+      "members": {
+        "success": { 
+          "target": "com.amazonaws.cloudwatchmonitoring#Boolean",
+          "traits": {
+            "smithy.api#required": {}
+          }
+        },
+        "message": { 
+          "target": "com.amazonaws.cloudwatchmonitoring#String" 
+        }
+      },
+      "traits": {
+        "smithy.api#output": {},
+        "smithy.api#documentation": "Response from cross-account setup"
+      }
+    },
+
+    "com.amazonaws.cloudwatchmonitoring#DashboardList": {
+      "type": "list",
+      "member": { 
+        "target": "com.amazonaws.cloudwatchmonitoring#Dashboard" 
+      },
+      "traits": {
+        "smithy.api#documentation": "List of CloudWatch Dashboards"
+      }
+    },
+    
+    "com.amazonaws.cloudwatchmonitoring#ListDashboardsResponse": {
+      "type": "structure",
+      "members": {
+        "dashboards": { 
+          "target": "com.amazonaws.cloudwatchmonitoring#DashboardList",
+          "traits": {
+            "smithy.api#required": {}
+          }
+        }
+      },
+      "traits": {
+        "smithy.api#output": {},
+        "smithy.api#documentation": "Response containing list of dashboards"
+      }
+    },
+
+    "com.amazonaws.cloudwatchmonitoring#AlarmList": {
+      "type": "list",
+      "member": { 
+        "target": "com.amazonaws.cloudwatchmonitoring#Alarm" 
+      },
+      "traits": {
+        "smithy.api#documentation": "List of CloudWatch Alarms"
+      }
+    },
+    
+    "com.amazonaws.cloudwatchmonitoring#GetAlarmsRequest": {
+      "type": "structure",
+      "members": {
+        "serviceName": { 
+          "target": "com.amazonaws.cloudwatchmonitoring#String",
+          "traits": { 
+            "smithy.api#required": {},
+            "smithy.api#documentation": "Name of the service to get alarms for"
+          }
+        },
+        "accountId": { 
+          "target": "com.amazonaws.cloudwatchmonitoring#AccountId",
+          "traits": {
+            "smithy.api#documentation": "AWS Account ID for cross-account access"
+          }
+        },
+        "roleName": { 
+          "target": "com.amazonaws.cloudwatchmonitoring#RoleName",
+          "traits": {
+            "smithy.api#documentation": "IAM Role name for cross-account access"
+          }
+        }
+      },
+      "traits": {
+        "smithy.api#input": {},
+        "smithy.api#documentation": "Request to get alarms for a service"
+      }
+    },
+    
+    "com.amazonaws.cloudwatchmonitoring#GetAlarmsResponse": {
+      "type": "structure",
+      "members": {
+        "alarms": { 
+          "target": "com.amazonaws.cloudwatchmonitoring#AlarmList",
+          "traits": {
+            "smithy.api#required": {}
+          }
+        }
+      },
+      "traits": {
+        "smithy.api#output": {},
+        "smithy.api#documentation": "Response containing list of alarms"
+      }
+    },
+
+    "com.amazonaws.cloudwatchmonitoring#LogEntryList": {
+      "type": "list",
+      "member": { 
+        "target": "com.amazonaws.cloudwatchmonitoring#LogEntry" 
+      },
+      "traits": {
+        "smithy.api#documentation": "List of CloudWatch Log Entries"
+      }
+    },
+    
+    "com.amazonaws.cloudwatchmonitoring#FetchLogsRequest": {
+      "type": "structure",
+      "members": {
+        "serviceName": { 
+          "target": "com.amazonaws.cloudwatchmonitoring#String",
+          "traits": { 
+            "smithy.api#required": {},
+            "smithy.api#documentation": "Name of the service to fetch logs for"
+          }
+        },
+        "accountId": { 
+          "target": "com.amazonaws.cloudwatchmonitoring#AccountId",
+          "traits": {
+            "smithy.api#documentation": "AWS Account ID for cross-account access"
+          }
+        },
+        "roleName": { 
+          "target": "com.amazonaws.cloudwatchmonitoring#RoleName",
+          "traits": {
+            "smithy.api#documentation": "IAM Role name for cross-account access"
+          }
+        }
+      },
+      "traits": {
+        "smithy.api#input": {},
+        "smithy.api#documentation": "Request to fetch logs for a service"
+      }
+    },
+    
+    "com.amazonaws.cloudwatchmonitoring#FetchLogsResponse": {
+      "type": "structure",
+      "members": {
+        "logs": { 
+          "target": "com.amazonaws.cloudwatchmonitoring#LogEntryList",
+          "traits": {
+            "smithy.api#required": {}
+          }
+        }
+      },
+      "traits": {
+        "smithy.api#output": {},
+        "smithy.api#documentation": "Response containing log entries"
+      }
+    },
+
+    "com.amazonaws.cloudwatchmonitoring#GetDashboardRequest": {
+      "type": "structure",
+      "members": {
+        "dashboardName": { 
+          "target": "com.amazonaws.cloudwatchmonitoring#String",
+          "traits": { 
+            "smithy.api#required": {},
+            "smithy.api#documentation": "Name of the dashboard to retrieve"
+          }
+        },
+        "accountId": { 
+          "target": "com.amazonaws.cloudwatchmonitoring#AccountId",
+          "traits": {
+            "smithy.api#documentation": "AWS Account ID for cross-account access"
+          }
+        },
+        "roleName": { 
+          "target": "com.amazonaws.cloudwatchmonitoring#RoleName",
+          "traits": {
+            "smithy.api#documentation": "IAM Role name for cross-account access"
+          }
+        }
+      },
+      "traits": {
+        "smithy.api#input": {},
+        "smithy.api#documentation": "Request to get a specific dashboard"
+      }
+    },
+    
+    "com.amazonaws.cloudwatchmonitoring#GetDashboardResponse": {
+      "type": "structure",
+      "members": {
+        "dashboard": { 
+          "target": "com.amazonaws.cloudwatchmonitoring#Dashboard",
+          "traits": {
+            "smithy.api#required": {}
+          }
+        }
+      },
+      "traits": {
+        "smithy.api#output": {},
+        "smithy.api#documentation": "Response containing dashboard information"
+      }
+    },
+
+    "com.amazonaws.cloudwatchmonitoring#LogGroupList": {
+      "type": "list",
+      "member": { 
+        "target": "com.amazonaws.cloudwatchmonitoring#LogGroup" 
+      },
+      "traits": {
+        "smithy.api#documentation": "List of CloudWatch Log Groups"
+      }
+    },
+    
+    "com.amazonaws.cloudwatchmonitoring#ListLogGroupsRequest": {
+      "type": "structure",
+      "members": {
+        "accountId": { 
+          "target": "com.amazonaws.cloudwatchmonitoring#AccountId",
+          "traits": {
+            "smithy.api#documentation": "AWS Account ID for cross-account access"
+          }
+        },
+        "roleName": { 
+          "target": "com.amazonaws.cloudwatchmonitoring#RoleName",
+          "traits": {
+            "smithy.api#documentation": "IAM Role name for cross-account access"
+          }
+        }
+      },
+      "traits": {
+        "smithy.api#input": {},
+        "smithy.api#documentation": "Request to list all log groups"
+      }
+    },
+    
+    "com.amazonaws.cloudwatchmonitoring#ListLogGroupsResponse": {
+      "type": "structure",
+      "members": {
+        "logGroups": { 
+          "target": "com.amazonaws.cloudwatchmonitoring#LogGroupList",
+          "traits": {
+            "smithy.api#required": {}
+          }
+        }
+      },
+      "traits": {
+        "smithy.api#output": {},
+        "smithy.api#documentation": "Response containing list of log groups"
+      }
+    },
+
+    "com.amazonaws.cloudwatchmonitoring#AnalyzeLogGroupRequest": {
+      "type": "structure",
+      "members": {
+        "logGroupName": { 
+          "target": "com.amazonaws.cloudwatchmonitoring#String",
+          "traits": { 
+            "smithy.api#required": {},
+            "smithy.api#documentation": "Name of the log group to analyze"
+          }
+        },
+        "accountId": { 
+          "target": "com.amazonaws.cloudwatchmonitoring#AccountId",
+          "traits": {
+            "smithy.api#documentation": "AWS Account ID for cross-account access"
+          }
+        },
+        "roleName": { 
+          "target": "com.amazonaws.cloudwatchmonitoring#RoleName",
+          "traits": {
+            "smithy.api#documentation": "IAM Role name for cross-account access"
+          }
+        }
+      },
+      "traits": {
+        "smithy.api#input": {},
+        "smithy.api#documentation": "Request to analyze a specific log group"
+      }
+    },
+    
+    "com.amazonaws.cloudwatchmonitoring#AnalyzeLogGroupResponse": {
+      "type": "structure",
+      "members": {
+        "analysis": { 
+          "target": "com.amazonaws.cloudwatchmonitoring#Analysis",
+          "traits": {
+            "smithy.api#required": {}
+          }
+        }
+      },
+      "traits": {
+        "smithy.api#output": {},
+        "smithy.api#documentation": "Response containing log group analysis"
+      }
+    },
+
+    "com.amazonaws.cloudwatchmonitoring#SetupCrossAccount": {
+      "type": "operation",
+      "input": { 
+        "target": "com.amazonaws.cloudwatchmonitoring#SetupCrossAccountRequest" 
+      },
+      "output": { 
+        "target": "com.amazonaws.cloudwatchmonitoring#SetupCrossAccountResponse" 
+      },
+      "traits": {
+        "smithy.api#http": {
+          "method": "POST",
+          "uri": "/setup-cross-account-access"
+        },
+        "smithy.api#documentation": "Setup cross-account access for monitoring"
+      }
+    },
+    
+    "com.amazonaws.cloudwatchmonitoring#ListDashboards": {
+      "type": "operation",
+      "output": { 
+        "target": "com.amazonaws.cloudwatchmonitoring#ListDashboardsResponse" 
+      },
+      "traits": {
+        "smithy.api#http": { 
+          "method": "GET", 
+          "uri": "/dashboards" 
+        },
+        "smithy.api#readonly": {},
+        "smithy.api#documentation": "List all CloudWatch dashboards"
+      }
+    },
+    
+    "com.amazonaws.cloudwatchmonitoring#GetAlarms": {
+      "type": "operation",
+      "input": { 
+        "target": "com.amazonaws.cloudwatchmonitoring#GetAlarmsRequest" 
+      },
+      "output": { 
+        "target": "com.amazonaws.cloudwatchmonitoring#GetAlarmsResponse" 
+      },
+      "traits": {
+        "smithy.api#http": { 
+          "method": "POST", 
+          "uri": "/alarms" 
+        },
+        "smithy.api#readonly": {},
+        "smithy.api#documentation": "Get CloudWatch alarms for a service"
+      }
+    },
+    
+    "com.amazonaws.cloudwatchmonitoring#FetchLogs": {
+      "type": "operation",
+      "input": { 
+        "target": "com.amazonaws.cloudwatchmonitoring#FetchLogsRequest" 
+      },
+      "output": { 
+        "target": "com.amazonaws.cloudwatchmonitoring#FetchLogsResponse" 
+      },
+      "traits": {
+        "smithy.api#http": { 
+          "method": "POST", 
+          "uri": "/logs" 
+        },
+        "smithy.api#readonly": {},
+        "smithy.api#documentation": "Fetch CloudWatch logs for a service"
+      }
+    },
+    
+    "com.amazonaws.cloudwatchmonitoring#GetDashboard": {
+      "type": "operation",
+      "input": { 
+        "target": "com.amazonaws.cloudwatchmonitoring#GetDashboardRequest" 
+      },
+      "output": { 
+        "target": "com.amazonaws.cloudwatchmonitoring#GetDashboardResponse" 
+      },
+      "traits": {
+        "smithy.api#http": { 
+          "method": "POST", 
+          "uri": "/dashboard-summary" 
+        },
+        "smithy.api#readonly": {},
+        "smithy.api#documentation": "Get a specific CloudWatch dashboard"
+      }
+    },
+    
+    "com.amazonaws.cloudwatchmonitoring#ListLogGroups": {
+      "type": "operation",
+      "input": { 
+        "target": "com.amazonaws.cloudwatchmonitoring#ListLogGroupsRequest" 
+      },
+      "output": { 
+        "target": "com.amazonaws.cloudwatchmonitoring#ListLogGroupsResponse" 
+      },
+      "traits": {
+        "smithy.api#http": { 
+          "method": "GET", 
+          "uri": "/log-groups" 
+        },
+        "smithy.api#readonly": {},
+        "smithy.api#documentation": "List all CloudWatch log groups"
+      }
+    },
+    
+    "com.amazonaws.cloudwatchmonitoring#AnalyzeLogGroup": {
+      "type": "operation",
+      "input": { 
+        "target": "com.amazonaws.cloudwatchmonitoring#AnalyzeLogGroupRequest" 
+      },
+      "output": { 
+        "target": "com.amazonaws.cloudwatchmonitoring#AnalyzeLogGroupResponse" 
+      },
+      "traits": {
+        "smithy.api#http": { 
+          "method": "POST", 
+          "uri": "/analyze-log-group" 
+        },
+        "smithy.api#readonly": {},
+        "smithy.api#documentation": "Analyze a specific CloudWatch log group"
+      }
+    },
+
+    "com.amazonaws.cloudwatchmonitoring#CloudWatchMonitoring": {
+      "type": "service",
+      "version": "2025-01-21",
+      "operations": [
+        { "target": "com.amazonaws.cloudwatchmonitoring#SetupCrossAccount" },
+        { "target": "com.amazonaws.cloudwatchmonitoring#ListDashboards" },
+        { "target": "com.amazonaws.cloudwatchmonitoring#GetAlarms" },
+        { "target": "com.amazonaws.cloudwatchmonitoring#FetchLogs" },
+        { "target": "com.amazonaws.cloudwatchmonitoring#GetDashboard" },
+        { "target": "com.amazonaws.cloudwatchmonitoring#ListLogGroups" },
+        { "target": "com.amazonaws.cloudwatchmonitoring#AnalyzeLogGroup" }
+      ],
+      "traits": {
+        "aws.protocols#restJson1": {},
+        "aws.api#service": {
+          "sdkId": "CloudWatchMonitoring",
+          "endpointPrefix": "cloudwatch-monitoring",
+          "arnNamespace": "cloudwatch-monitoring",
+          "cloudFormationName": "CloudWatchMonitoring",
+          "cloudTrailEventSource": "cloudwatch-monitoring.amazonaws.com"
+        },
+        "smithy.api#title": "CloudWatch Monitoring Service",
+        "smithy.api#documentation": "A service for monitoring AWS CloudWatch resources including dashboards, alarms, and logs."
+      }
+    }
+  }
+}
