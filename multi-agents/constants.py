@@ -8,6 +8,14 @@ CONFIG_FNAME: str = "config.yaml"
 # These are the tool use IDs that are initialized for the strands based
 # callback handler functions
 TOOL_USE_IDS = []
+# This is the cognito discovery URL that is used to fetch the region name
+# and the user pool ID which is then used to populate this and it is used
+# in the auth config for the inbound auth of the agentcore gateway
+COGNITO_DISCOVERY_URL = """https://cognito-idp.{region}.amazonaws.com/{user_pool_id}/.well-known/openid-configuration"""
+# MCP auth
+MCP_PROTOCOL: str = "MCP"
+# Authorizer type
+AUTH_TYPE_CUSTOM_JWT: str = "CUSTOM_JWT"
 
 # These are the memory prompts that are used for extraction and consolidation
 # MONITORING AGENT MEMORY PROMPTS
@@ -20,7 +28,7 @@ MONITORING_CONSOLIDATION_EXTRACTION_PROMPT_FPATH: str = os.path.join(MONITORING_
 MONITORING_GATEWAY_NAME = "MonitoringAgentGWNew"
 MONITORING_GATEWAY_DESC: str = "Gateway for the monitoring agent"
 MONITORING_GATEWAY_CREDENTIALS_PATH = "mcp_credentials.json"
-REGION_NAME = "us-west-2"
+REGION_NAME = boto3.Session().region_name
 ACCOUNT_ID = boto3.client("sts").get_caller_identity()["Account"]
 EXECUTION_ROLE_ARN = f"arn:aws:iam::{ACCOUNT_ID}:role/GenesisGatewayExecutionRole"
 LAMBDA_ARN = f"arn:aws:lambda:{REGION_NAME}:{ACCOUNT_ID}:function:AgentGatewayFunction"

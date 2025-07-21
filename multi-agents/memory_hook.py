@@ -1,5 +1,6 @@
 # import the memory client 
 import logging
+import time
 from typing import List, Dict, Any
 from bedrock_agentcore.memory import MemoryClient
 # This will help set up for strategies that can then be used 
@@ -7,7 +8,7 @@ from bedrock_agentcore.memory import MemoryClient
 # summarizations across the sessions along with custom strategies
 # for this monitoring agent
 from bedrock_agentcore.memory.constants import StrategyType
-from strands.hooks import AgentInitializedEvent, HookProvider, HookRegistry, MessageAddedEvent
+from strands.hooks import AgentInitializedEvent, HookProvider, HookRegistry, MessageAddedEvent, AfterInvocationEvent
 
 # Setup
 logging.basicConfig(level=logging.INFO)
@@ -20,7 +21,7 @@ def get_namespaces(mem_client: MemoryClient, memory_id: str) -> Dict:
     return {i["type"]: i["namespaces"][0] for i in strategies}
 
 # Create monitoring memory hooks
-class MonitoringMemoryHooks:
+class MonitoringMemoryHooks(HookProvider):
     """Memory hooks for monitoring agent"""
     
     def __init__(self, memory_id: str, client: MemoryClient, actor_id: str, session_id: str):
@@ -30,7 +31,7 @@ class MonitoringMemoryHooks:
         self.session_id = session_id
         self.namespaces = get_namespaces(self.client, self.memory_id)
 
-    def retrieve_monitoring_context(self, event):
+    def retrieve_monitoring_context(self, event: MessageAddedEvent):
         """Retrieve monitoring context before processing queries"""
         messages = event.agent.messages
         if messages[-1]["role"] == "user" and "toolResult" not in messages[-1]["content"][0]:
@@ -71,7 +72,7 @@ class MonitoringMemoryHooks:
             except Exception as e:
                 logger.error(f"Failed to retrieve monitoring context: {e}")
     
-    def save_monitoring_interaction(self, event):
+    def save_monitoring_interaction(self, event: AfterInvocationEvent):
         """Save monitoring interaction after agent response"""
         try:
             messages = event.agent.messages
@@ -88,12 +89,15 @@ class MonitoringMemoryHooks:
                         break
                 
                 if user_query and agent_response:
-                    # Save the monitoring interaction
+                    # Save both user query and assistant response in one call
                     self.client.create_event(
                         memory_id=self.memory_id,
                         actor_id=self.actor_id,
                         session_id=self.session_id,
-                        messages=[(user_query, "USER"), (agent_response, "ASSISTANT")]
+                        messages=[
+                            (user_query, "USER"),
+                            (agent_response, "ASSISTANT")
+                        ]
                     )
                     logger.info("Saved monitoring interaction to memory")
                     
@@ -128,20 +132,9 @@ class MonitoringMemoryHooks:
         except Exception as e:
             logger.error(f"Memory load error: {e}")
             
-    def on_message_added(self, event: MessageAddedEvent):
-        """Store messages in memory"""
-        messages = event.agent.messages
-        try:
-            self.client.create_event(
-                memory_id=self.memory_id,
-                actor_id=self.actor_id,
-                session_id=self.session_id,
-                messages=[(messages[-1]["content"][0]["text"], messages[-1]["role"])]
-            )
-        except Exception as e:
-            logger.error(f"Memory save error: {e}")
-            
-    def register_hooks(self, registry: HookRegistry):
-        # Register memory hooks
-        registry.add_callback(MessageAddedEvent, self.on_message_added)
+    def register_hooks(self, registry: HookRegistry) -> None:
+        """Register monitoring memory hooks"""
+        registry.add_callback(MessageAddedEvent, self.retrieve_monitoring_context)
+        registry.add_callback(AfterInvocationEvent, self.save_monitoring_interaction)
         registry.add_callback(AgentInitializedEvent, self.on_agent_initialized)
+        logger.info("Monitoring memory hooks registered")

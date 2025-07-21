@@ -21,72 +21,12 @@ agent_information:
       # based on the inference parameters that are supported
       temperature: 0.1
       max_tokens: 2048
-    # These can be MCP servers that are local or available through streamable http or sse
-    # We will be fetching tools from these MCP servers and then use that behind a tool gateway
-    # This tool gateway will ultimately contain local tools and MCP server tools that will be available
-    # as endpoints to call through the tool gateway primitive
-    # These can be json files for now are supported, can be lambda functions as well
-    tools_config: ['monitoring_agent/tools/monitoring_tools_config.json']
-    # Gateway configuration for the monitoring agent
-    gateway_config:
-      # this is the name of the gateway for this agent and the tools
-      # that this agent has access to - this can be an existing gateway in the case
-      # of which you would have to configure the access token for inbound auth of
-      # this gateway
-      name: "mngtw2039"
-      # this is the description of the agent gateway
-      description: "AgentCore Gateway for the monitoring agent"
-      # protocol type is MCP
-      protocol_type: "MCP"
-      # IAM Role Configuration
-      # this is the IAM role that will be attached to this gateway
-      iam_role:
-        execution_role_arn: "arn:aws:iam::ACCOUNT_ID:role/GenesisGatewayExecutionRole"
-      # Inbound Authentication Configuration
-      # COGNITO SETUP but this can be okta, keycloak, etc.
-      inbound_auth:
-        type: "cognito"
-        cognito:
-          user_pool_name: "sample-agentcore-gateway-pool"
-          resource_server_id: "sample-agentcore-gateway-id"
-          resource_server_name: "sample-agentcore-gateway-name"
-          client_name: "sample-agentcore-gateway-client"
-          scopes:
-            - name: "gateway:read"
-              description: "Read access"
-            - name: "gateway:write"
-              description: "Write access"
-      # Gateway Targets Configuration - choose between "openAPI" or "lambda"
-      target_type: "lambda"  # Options: "openAPI" or "lambda"
-      targets:
-        - name: "monitoring_lambda_target"
-          type: "lambda"
-          description: "Lambda target for monitoring tools"
-          lambda:
-            arn: "arn:aws:lambda:us-west-2:218208277580:function:MonitoringAgentLambda"
-            tools_config: ['monitoring_agent/tools/monitoring_tools_config.json']
-          outbound_auth:
-            type: "iam"
-        # - name: "monitoring_openapi_target"
-        #   type: "openAPI"
-        #   description: "OpenAPI target for monitoring tools"
-        #   openapi:
-        #     schema_path: "monitoring_agent/tools/monitoring_tools_openapi.json"
-        #   outbound_auth:
-        #     type: "iam"
-      # Credentials storage configuration
-      credentials:
-        storage_path:
-        use_existing: true
-        # if it has been one hour since you used the previous token
-        # then it would make sense to refresh the access token for your
-        # agent that talks to the gateway
-        create_new_access_token: true  # Enable automatic token refresh on 401 errors
+    # MEMORY CONFIGURATION FOR THE MONITORING AGENT
     # If your memory is already created, please provide the credentials here
     use_existing_memory: true
     memory_credentials:
       # fetch this from your AWS console
-      id: MonitoringAgentGWNew_memory_1752767342-tDlIDpGgBN
+      id: MonitoringAgentGW_memory_new-eYYp4xGaII
     memory_allocation:
       # An actor refers to an entity such as an end user or an agent that interacts with the
       # agent application. For example, in a coding use case, an actor is a developer asking
@@ -97,3 +37,62 @@ agent_information:
       # the user and the AI agent
       # A namespace is used to logically group and organize the long term memories, these will
       # be created on the fly using the strategies that are used in the memory for the agent.
+    # GATEWAY CONFIGURATION FOR THE MONITORING AGENT
+    # Gateway configuration for the monitoring agent
+    gateway_config:
+      # this is the name of the gateway for this agent and the tools
+      # that this agent has access to - this can be an existing gateway in the case
+      # of which you would have to configure the access token for inbound auth of
+      # this gateway
+      name: "monitorgtw-madhur"
+      # this is the name of the bucket where the target files (openapi or smithy) will
+      # be uploaded from
+      bucket_name: fmbench-deep-dive
+      # this is the description of the agent gateway
+      description: "AgentCore Gateway for the monitoring agent"
+      # protocol type is MCP
+      protocol_type: "MCP"
+      # These can be MCP servers that are local or available through streamable http or sse
+      # We will be fetching tools from these MCP servers and then use that behind a tool gateway
+      # This tool gateway will ultimately contain local tools and MCP server tools that will be available
+      # as endpoints to call through the tool gateway primitive
+      # These can be json files for now are supported, can be lambda functions as well
+      # This represents the target type for the gateway
+      existing_target: true
+      target_name: CloudWatchMonitoringLambda
+      target_type: "lambda"  # Options: "openAPI", "lambda", or "smithy"
+      targets:
+        lambda:
+          - function_name: "monitoring-agent-lambda"
+            role_arn: arn:aws:lambda:us-west-2:218208277580:function:monitoring-agent-lambda
+            config_struct: tools/lambda_monitoring_tools.json
+      # IAM Role Configuration
+      # this is the IAM role that will be attached to this gateway
+      iam_role:
+        execution_role_arn: "arn:aws:iam::ACCOUNT_ID:role/GenesisGatewayExecutionRole"
+      # Inbound Authentication Configuration
+      # COGNITO SETUP but this can be okta, keycloak, etc.
+      inbound_auth:
+        type: "cognito"
+        cognito:
+          # If you want a new user pool to be created, then this is 
+          # the value that should be configured in the config file.
+          create_user_pool: true
+          user_pool_name: "agentcore-gateway-pool"
+          resource_server_id: "monitoring_agent2039"
+          resource_server_name: "agentcore-gateway2039"
+          client_name: "agentcore-gateway-client"
+          # The scopes for this client is both to read and to write
+          scopes:
+            - ScopeName: "gateway:read"
+              ScopeDescription: "Read access"
+            - ScopeName: "gateway:write"
+              ScopeDescription: "Write access"
+      # Credentials storage configuration
+      credentials:
+        storage_path:
+        use_existing: false
+        # if it has been one hour since you used the previous token
+        # then it would make sense to refresh the access token for your
+        # agent that talks to the gateway
+        create_new_access_token: true  # Enable automatic token refresh on 401 errors

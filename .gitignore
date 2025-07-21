@@ -1,18 +1,45 @@
 # Python-generated files
 __pycache__/
-*.py[oc]
+*.py[cod]
+*$py.class
+*.so
+.Python
 build/
+develop-eggs/
 dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
 wheels/
-*.egg-info
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
 
 # Virtual environments
+.env
 .venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
 
 # Credentials and sensitive files
-*.json
 *credentials*.json
 *_credentials.json
+*secrets*.json
+*keys*.json
+*token*.json
+*auth*.json
+mcp_credentials.json
 config.json
 secrets.json
 .env
@@ -42,3 +69,45 @@ logs/
 
 GenesisSDKExamples/
 *.whl
+
+# Additional sensitive patterns
+*.key
+*.pem
+*.p12
+*.pfx
+.aws/
+aws-exports.js
+
+# Coverage reports
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# PyCharm
+.idea/
+
+# Local database
+*.db
+*.sqlite
+*.sqlite3
+
+# Temporary files
+*.tmp
+*.temp
+temp/
+tmp/

@@ -1,31 +1,19 @@
-# This file contain utility functions that are used across the mutli agent
-# solution
-import re
-import os
-import json
-import yaml
-import time
 import boto3
-import zipfile
+import json
+import time
+from boto3.session import Session
+import botocore
+import requests
+import os
+import time
 import logging
-from io import BytesIO
-from constants import *
+import yaml
+from typing import Optional, Dict, Union
 from pathlib import Path
-from typing import Union, Dict, Optional
-from bedrock_agentcore_starter_toolkit.operations.gateway import GatewayClient
 
 # set a logger
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
-
-PYTHON_TIMEOUT: int = 180
-PYTHON_RUNTIME: str = "python3.12"
-
-# Initialize S3 client
-s3_client = boto3.client('s3')
-# Initialize the bedrock runtime client. This is used to 
-# query search results from the FMC and Meraki KBs
-bedrock_agent_runtime_client = boto3.client('bedrock-agent-runtime') 
 
 def load_config(config_file: Union[Path, str]) -> Optional[Dict]:
     """
@@ -44,42 +32,6 @@ def load_config(config_file: Union[Path, str]) -> Optional[Dict]:
         logger.error(f"Error loading config from local file system: {e}")
         config_data = None
     return config_data
-
-def load_and_combine_tools(tools_config, config_file_path=None):
-    """Load and combine tools from multiple sources"""
-    all_tools = []
-    
-    config_dir = os.path.dirname(config_file_path) if config_file_path else os.getcwd()
-    
-    # Load tools from each configured source
-    for tool_source in tools_config:
-        print(f"Checking for tool source: {tool_source}")
-        if tool_source.endswith('.json'):
-            # Resolve relative paths relative to config file location
-            if not os.path.isabs(tool_source):
-                tool_source = os.path.join(config_dir, tool_source)
-                print(f"Found tool source: {tool_source}")
-            try:
-                # Load JSON file
-                with open(tool_source, 'r') as file:
-                    tools_data = json.load(file)
-                    all_tools.extend(tools_data.get('tools', []))
-                print(f"Successfully loaded {len(tools_data.get('tools', []))} tools from {tool_source}")
-            except FileNotFoundError:
-                print(f"Warning: Could not find tools file: {tool_source}")
-            except json.JSONDecodeError as e:
-                print(f"Warning: Invalid JSON in tools file {tool_source}: {e}")
-    
-    return all_tools
-
-import boto3
-import json
-import time
-from boto3.session import Session
-import botocore
-import requests
-import os
-import time
 
 def setup_cognito_user_pool():
     boto_session = Session()
@@ -157,7 +109,7 @@ def setup_cognito_user_pool():
         print(f"Error: {e}")
         return None
 
-def get_or_create_user_pool(cognito, USER_POOL_NAME):
+def get_or_create_user_pool(cognito, USER_POOL_NAME, CREATE_USER_POOL: bool = False):
     response = cognito.list_user_pools(MaxResults=60)
     for pool in response["UserPools"]:
         if pool["Name"] == USER_POOL_NAME:
@@ -178,14 +130,18 @@ def get_or_create_user_pool(cognito, USER_POOL_NAME):
                 print(f"No domains found for user pool {user_pool_id}")
             return pool["Id"]
     print('Creating new user pool')
-    created = cognito.create_user_pool(PoolName=USER_POOL_NAME)
-    user_pool_id = created["UserPool"]["Id"]
-    user_pool_id_without_underscore_lc = user_pool_id.replace("_", "").lower()
-    cognito.create_user_pool_domain(
-        Domain=user_pool_id_without_underscore_lc,
-        UserPoolId=user_pool_id
-    )
-    print("Domain created as well")
+    if CREATE_USER_POOL:
+        created = cognito.create_user_pool(PoolName=USER_POOL_NAME)
+        user_pool_id = created["UserPool"]["Id"]
+        user_pool_id_without_underscore_lc = user_pool_id.replace("_", "").lower()
+        cognito.create_user_pool_domain(
+            Domain=user_pool_id_without_underscore_lc,
+            UserPoolId=user_pool_id
+        )
+        print("Domain created as well")
+    else:
+        print(f"User pool creation set to {CREATE_USER_POOL}. Returning.")
+        return
     return created["UserPool"]["Id"]
 
 def get_or_create_resource_server(cognito, user_pool_id, RESOURCE_SERVER_ID, RESOURCE_SERVER_NAME, SCOPES):
@@ -225,11 +181,6 @@ def get_or_create_m2m_client(cognito, user_pool_id, CLIENT_NAME, RESOURCE_SERVER
     return created["UserPoolClient"]["ClientId"], created["UserPoolClient"]["ClientSecret"]
 
 def get_token(user_pool_id: str, client_id: str, client_secret: str, scope_string: str, REGION: str) -> dict:
-    """
-    This is the function that is used to get the token for the cognito IdP in case
-    the user wants to refresh the token that is used to connect to the gateway
-    for inbound authentication
-    """
     try:
         user_pool_id_without_underscore = user_pool_id.replace("_", "")
         url = f"https://{user_pool_id_without_underscore}.auth.{REGION}.amazoncognito.com/oauth2/token"
@@ -243,9 +194,9 @@ def get_token(user_pool_id: str, client_id: str, client_secret: str, scope_strin
         }
         print(client_id)
         print(client_secret)
-        # we will get the token as the egress auth
         response = requests.post(url, headers=headers, data=data)
         response.raise_for_status()
+        print(f"Fetched the token that will be used to connect to the targets: {response.json()}")
         return response.json()
 
     except requests.exceptions.RequestException as err:
@@ -421,20 +372,30 @@ def create_agentcore_role(agent_name):
 
     return agentcore_iam_role
 
-def create_agentcore_gateway_role(gateway_name, role_policy: Dict):
-    """
-    This is the function that provides access to bedrock agent core
-    This means that each of the agent will have access to bedrock, bedrock agentcore, 
-    getting the credentials from an OAuth provider, secrets, etc
-    
-    This function also takes in the role policy that is needed to configure the 
-    permissions that the IAM role will have that is accessing the gateway
-    """
+def create_agentcore_gateway_role(gateway_name):
     iam_client = boto3.client('iam')
     agentcore_gateway_role_name = f'agentcore-{gateway_name}-role'
     boto_session = Session()
     region = boto_session.region_name
     account_id = boto3.client("sts").get_caller_identity()["Account"]
+    role_policy = {
+        "Version": "2012-10-17",
+        "Statement": [{
+                "Sid": "VisualEditor0",
+                "Effect": "Allow",
+                "Action": [
+                    "bedrock-agentcore:*",
+                    "bedrock:*",
+                    "agent-credential-provider:*",
+                    "iam:PassRole",
+                    "secretsmanager:GetSecretValue",
+                    "lambda:InvokeFunction"
+                ],
+                "Resource": "*"
+            }
+        ]
+    }
+
     assume_role_policy_document = {
         "Version": "2012-10-17",
         "Statement": [
@@ -526,6 +487,9 @@ def create_agentcore_gateway_role_s3_smithy(gateway_name):
                     "secretsmanager:GetSecretValue",
                     "lambda:InvokeFunction",
                     "s3:*",
+                    # This is used to track the observability 
+                    # component of the gateway
+                    "cloudwatch:*",
                 ],
                 "Resource": "*"
             }
@@ -717,276 +681,366 @@ def delete_all_gateways(gateway_client):
     except Exception as e:
         print(e)
 
-def load_or_create_gateway_credentials(gateway_config):
+def create_gateway_target(target_type, gateway_id, target_name, target_descr, target_config):
     """
-    Load existing gateway credentials or return None if not found
+    Creates a gateway target for either Lambda or OpenAPI.
     
     Args:
-        gateway_config (dict): Gateway configuration containing credentials settings
-        
-    Returns:
-        dict or None: Credentials dictionary if found, None otherwise
-    """
-    credentials_config = gateway_config.get('credentials')
-    storage_path = credentials_config.get('storage_path', 'gateway_credentials.json')
-    use_existing = credentials_config.get('use_existing', True)
-    if use_existing and os.path.exists(storage_path):
-        try:
-            with open(storage_path, 'r') as f:
-                credentials = json.load(f)
-            logger.info(f"Loaded existing gateway credentials from {storage_path}")
-            return credentials
-        except (json.JSONDecodeError, FileNotFoundError) as e:
-            logger.warning(f"Failed to load existing credentials: {e}")
-            return None
-    return None
-
-def save_gateway_credentials(gateway_config, mcp_url, access_token):
-    """
-    Save gateway credentials to storage
-    
-    Args:
-        gateway_config (dict): Gateway configuration containing credentials settings
-        mcp_url (str): MCP URL
-        access_token (str): Access token
-    """
-    credentials_config = gateway_config.get('credentials', {})
-    storage_path = credentials_config.get('storage_path', 'gateway_credentials.json')
-    credentials = {
-        "mcp_url": mcp_url,
-        "access_token": access_token,
-        "created_at": time.time()
-    }
-    with open(storage_path, 'w') as f:
-        json.dump(credentials, f, indent=4)
-    logger.info(f"Saved gateway credentials to {storage_path}")
-
-def create_gateway_from_config(agent_config, config_data):
-    """
-    Create a gateway from configuration data
-    
-    Args:
-        agent_config (dict): Agent configuration containing gateway_config
-        config_data (dict): Full configuration data (for context)
+        gateway_id: The gateway identifier
+        target_name: Name for the target
+        target_descr: Description for the target
+        target_config: Target configuration dict (either Lambda or OpenAPI)
     
     Returns:
-        tuple: (mcp_url, access_token)
+        The target ID of the created target
     """
+    from constants import REGION_NAME
+    # initialize the agentcore gateway client that will be used for 
+    # creating a target
+    agentcore_client = boto3.client('bedrock-agentcore-control', region_name=REGION_NAME)
+    if target_type in ['smithy', 'lambda']:
+        CREDENTIAL_INFO = [
+                {"credentialProviderType": "GATEWAY_IAM_ROLE"}
+            ]
+        print(f"Going to use the smithy/lambda type target credential information: {CREDENTIAL_INFO}")
+    elif target_type in ['openapi']:
+        # TO DO: To be implemented for the resolution agent
+        CREDENTIAL_INFO = [
+            {
+                "credentialProviderType" : "API_KEY", 
+                "credentialProvider": {
+                    "apiKeyCredentialProvider": {
+                            "credentialParameterName": "api_key", # Replace this with the name of the api key name expected by the respective API provider. For passing token in the header, use "Authorization"
+                            # This will be implemented through some post processing which will
+                            # be used by the agent to access a third party API key
+                            "providerArn": '',
+                            "credentialLocation":"QUERY_PARAMETER", # Location of api key. Possible values are "HEADER" and "QUERY_PARAMETER".
+                            #"credentialPrefix": " " # Prefix for the token. Valid values are "Basic". Applies only for tokens.
+                    }
+                }
+            }
+        ]
+        print(f"Going to use the openAPI type target credential information: {CREDENTIAL_INFO}")
+    # Create the agentcore gateway target using the gateway ID, 
+    # the target name, target description, the configuration and the credential provider
+    # config. For this, we will use the "GATEWAY_IAM_ROLE". This is for those targets that
+    # are lambda functions but for openAPI or Smithy models that make API calls outside to
+    # third party, we will use the OAuth type
+    response = agentcore_client.create_gateway_target(
+        gatewayIdentifier=gateway_id,
+        name=target_name,
+        description=target_descr,
+        targetConfiguration=target_config,
+        credentialProviderConfigurations=CREDENTIAL_INFO,
+    )
+    return response["targetId"]
+
+def upload_smithy_to_s3(smithy_file_path, bucket_name, object_key):
+    """
+    Upload a Smithy JSON file to S3 and return the S3 URI.
+    """
+    from constants import REGION_NAME
     try:
-        gateway_config = agent_config.get('gateway_config')
-        if not gateway_config:
-            raise ValueError("No gateway configuration found in agent config")
+        s3_client = boto3.client('s3', region_name=REGION_NAME)
         
-        # Check for existing credentials first
-        existing_credentials = load_or_create_gateway_credentials(gateway_config)
-        if existing_credentials:
-            return existing_credentials.get('mcp_url'), existing_credentials.get('access_token')
-        
-        # Extract basic gateway information
-        gateway_name = gateway_config.get('name', 'DefaultGateway')
-        gateway_desc = gateway_config.get('description', 'Default Gateway Description')
-        protocol_type = gateway_config.get('protocol_type', 'MCP')
-        
-        # Initialize gateway client
-        client = GatewayClient(region_name=REGION_NAME)
-        
-        # Handle inbound authentication
-        inbound_auth = gateway_config.get('inbound_auth')
-        auth_type = inbound_auth.get('type', 'cognito')
-        
-        if auth_type == 'cognito':
-            # Setup Cognito authorizer
-            cognito_config = inbound_auth.get('cognito')
-            cognito_result = client.create_oauth_authorizer_with_cognito(
-                gateway_name,
-                user_pool_name=cognito_config.get('user_pool_name', f'{gateway_name}-pool'),
-                resource_server_id=cognito_config.get('resource_server_id', f'{gateway_name}-id'),
-                resource_server_name=cognito_config.get('resource_server_name', f'{gateway_name}-name'),
-                client_name=cognito_config.get('client_name', f'{gateway_name}-client'),
-                scopes=cognito_config.get('scopes', [
-                    {"name": "gateway:read", "description": "Read access"},
-                    {"name": "gateway:write", "description": "Write access"}
-                ])
-            )
-            authorizer_config = cognito_result["authorizer_config"]
-        else:
-            raise ValueError(f"Unsupported inbound auth type: {auth_type}")
-        # Create gateway
-        gateway = client.create_mcp_gateway(
-            name=gateway_name,
-            description=gateway_desc,
-            protocol_type=protocol_type,
-            authorizer_config=authorizer_config
-        )
-        # Process targets
-        targets = gateway_config.get('targets', [])
-        for target_config in targets:
-            target_name = target_config.get('name', 'DefaultTarget')
-            target_type = target_config.get('type', 'lambda')
-            target_desc = target_config.get('description', 'Default Target')
-            
-            if target_type == 'lambda':
-                # Handle Lambda target
-                lambda_config = target_config.get('lambda', {})
-                lambda_arn = lambda_config.get('arn', '')
-                
-                # Replace ACCOUNT_ID placeholder
-                if 'ACCOUNT_ID' in lambda_arn:
-                    account_id = boto3.client("sts").get_caller_identity()["Account"]
-                    lambda_arn = lambda_arn.replace('ACCOUNT_ID', account_id)
-                
-                # Load tools configuration
-                tools_config_paths = lambda_config.get('tools_config', [])
-                tools = load_and_combine_tools(tools_config_paths)
-                # Create lambda target
-                lambda_target = client.create_mcp_gateway_target(
-                    gateway=gateway,
-                    target_type="lambda",
-                    target_name=target_name,
-                    target_description=target_desc,
-                    lambda_arn=lambda_arn,
-                    tools=tools
-                )
+        # Check if bucket exists, create if it doesn't
+        try:
+            s3_client.head_bucket(Bucket=bucket_name)
+        except s3_client.exceptions.NoSuchBucket:
+            print(f"Creating S3 bucket: {bucket_name}")
+            if REGION_NAME == 'us-east-1':
+                s3_client.create_bucket(Bucket=bucket_name)
             else:
-                logger.warning(f"Unsupported target type: {target_type}")
-        # Get access token and MCP URL
-        if auth_type == 'cognito':
-            access_token = client.get_access_token_for_cognito(cognito_result["client_info"])
-        else:
-            access_token = None
-        mcp_url = gateway.get_mcp_url()
-        # Save credentials
-        save_gateway_credentials(gateway_config, mcp_url, access_token)
-        return mcp_url, access_token
+                s3_client.create_bucket(
+                    Bucket=bucket_name,
+                    CreateBucketConfiguration={'LocationConstraint': REGION_NAME}
+                )
+        
+        # Upload the file
+        print(f"Uploading {smithy_file_path} to s3://{bucket_name}/{object_key}")
+        s3_client.upload_file(smithy_file_path, bucket_name, object_key)
+        
+        s3_uri = f"s3://{bucket_name}/{object_key}"
+        print(f"✅ Successfully uploaded Smithy file to: {s3_uri}")
+        return s3_uri
+        
     except Exception as e:
-        logger.error(f"Error creating gateway: {e}")
+        print(f"❌ Failed to upload Smithy file to S3: {e}")
         raise
 
-def create_gateway(lambda_arn, tool_config, gateway_name, gateway_desc):
+def create_target_config(target_info):
     """
-    Legacy function for backward compatibility
-    Create a gateway with the provided configuration
+    Creates target configuration based on target type (Lambda, OpenAPI, or Smithy).
+    """
+    target_type = target_info.get('type')
+    
+    if target_type == 'lambda':
+        lambda_config = target_info.get('lambda', {})
+        lambda_arn = lambda_config.get('arn')
+        tools_config_paths = lambda_config.get('tools_config', [])
+        
+        # Load tools from config files
+        tools_list = []
+        for config_path in tools_config_paths:
+            try:
+                with open(config_path, 'r') as f:
+                    config_data = json.load(f)
+                    tools_list.extend(config_data.get('tools', []))
+            except Exception as e:
+                print(f"Error loading tools config from {config_path}: {e}")
+        
+        return {
+            "mcp": {
+                "lambda": {
+                    "lambdaArn": lambda_arn,
+                    "toolSchema": {"inlinePayload": tools_list},
+                }
+            }
+        }
+    
+    elif target_type == 'openapi':
+        openapi_config = target_info.get('openapi', {})
+        s3_uri = openapi_config.get('s3_uri')
+        
+        return {
+            "mcp": {
+                "openApiSchema": {
+                    "s3": {
+                        "uri": s3_uri
+                    }
+                }
+            }
+        }
+    
+    elif target_type == 'smithy':
+        smithy_config = target_info.get('smithy', {})
+        s3_uri = smithy_config.get('s3_uri')
+        
+        return {
+            "mcp": {
+                "smithyModel": {
+                    "s3": {
+                        "uri": s3_uri
+                    }
+                }
+            }
+        }
+    
+    else:
+        raise ValueError(f"Unsupported target type: {target_type}")
+
+def check_existing_target(gateway_id, target_name):
+    """
+    Check if a target with the given name exists in the gateway.
     
     Args:
-        lambda_arn (str): Lambda ARN
-        tool_config (list): Tool configuration
-        gateway_name (str): Gateway name
-        gateway_desc (str): Gateway description
+        gateway_id: The gateway identifier
+        target_name: Name of the target to check
     
     Returns:
-        tuple: (mcp_url, access_token)
+        Target info dict if found, None otherwise
     """
-    client = GatewayClient(region_name=REGION_NAME)
-    
-    # Setup authorizer - this is for the inbound auth
-    cognito_result = client.create_oauth_authorizer_with_cognito(gateway_name)
-    # Setup gateway configuration
-    lambda_config = {
-        "arn": lambda_arn,
-        "tools": tool_config
-    }
-    # Create gateway
-    gateway = client.create_mcp_gateway(
-        name=gateway_name,
-        authorizer_config=cognito_result["authorizer_config"]
-    )
-    # Create lambda target
-    lambda_target = client.create_mcp_gateway_target(
-        gateway=gateway,
-        target_type="lambda"
-    )
-    # Get access token and MCP URL
-    access_token = client.get_access_token_for_cognito(cognito_result["client_info"])
-    mcp_url = gateway.get_mcp_url()
-    return mcp_url, access_token
+    from constants import REGION_NAME
+    try:
+        agentcore_client = boto3.client('bedrock-agentcore-control', region_name=REGION_NAME)
+        list_response = agentcore_client.list_gateway_targets(
+            gatewayIdentifier=gateway_id,
+            maxResults=100
+        )
+        
+        for target in list_response.get('items', []):
+            if target.get('name') == target_name:
+                return target
+        return None
+        
+    except Exception as e:
+        print(f"Error checking for existing target {target_name}: {e}")
+        return None
 
-# This is the comprehensive callback function that is used as a callback for all
-# agents that are developed using the Strands SDK
-
-# Callback handlers are a powerful feature of the Strands Agents SDK that allow you to intercept and process events as 
-# they happen during agent execution. This enables real-time monitoring, custom output formatting, and integration 
-# with external systems.
-def comprehensive_callback_handler(**kwargs):
+def create_targets_from_config(gateway_id, gateway_config, bucket_name):
     """
-    Enhanced comprehensive callback handler with LangSmith integration
+    Loop through targets configuration and create gateway targets based on target_type.
+    Checks if target exists before creating new one.
     """
+    import glob
+    import os
+    import time
+    created_targets = []
+    target_type = gateway_config.get('target_type', 'smithy')
+    targets_config = gateway_config.get('targets')
     
-    # === REASONING EVENTS (Agent's thinking process) ===
-    if kwargs.get("reasoning", False):
-        if "reasoningText" in kwargs:
-            reasoning_text = kwargs['reasoningText']
-            logger.info(f"🧠 REASONING: {reasoning_text}")
-            
-        if "reasoning_signature" in kwargs:
-            logger.info(f"🔍 REASONING SIGNATURE: {kwargs['reasoning_signature']}")
+    # Check if we should use an existing target
+    use_existing_target = gateway_config.get('existing_target', False)
+    existing_target_name = gateway_config.get('target_name')
     
-    # === TEXT GENERATION EVENTS ===
-    elif "data" in kwargs:
-        # Log streamed text chunks from the model
-        if kwargs.get("complete", False):
-            logger.info("")  # Add newline when complete
+    if use_existing_target and existing_target_name:
+        print(f"Checking for existing target: {existing_target_name}")
+        existing_target = check_existing_target(gateway_id, existing_target_name)
+        if existing_target:
+            print(f"✅ Using existing target: {existing_target_name} (ID: {existing_target['targetId']})")
+            created_targets.append({
+                'id': existing_target['targetId'],
+                'name': existing_target_name,
+                'type': target_type,
+                'existing': True
+            })
+            return created_targets
+        else:
+            print(f"Target {existing_target_name} not found, will create new one")
     
-    # === TOOL EVENTS ===
-    elif "current_tool_use" in kwargs:
-        tool = kwargs["current_tool_use"]
-        tool_use_id = tool["toolUseId"]
+    if target_type == 'smithy':
+        # Handle Smithy targets from directory paths
+        smithy_paths = targets_config.get('smithy')
+        print(f"Getting the smithy files: {smithy_paths}")
+        if smithy_paths:
+            print(f"Processing Smithy targets: {smithy_paths}")
+            for smithy_file in smithy_paths:
+                try:
+                    # Convert to absolute path
+                    if not os.path.isabs(smithy_file):
+                        smithy_file = os.path.abspath(smithy_file)
+                    print(f"Found Smithy JSON file: {smithy_file}")
+                    # Verify file exists
+                    if not os.path.exists(smithy_file):
+                        print(f"❌ Smithy file not found: {smithy_file}")
+                        continue
+                    
+                    # Create S3 bucket name and object key
+                    file_name = os.path.basename(smithy_file)
+                    object_key = f"smithy-specs/{file_name}"
+                    
+                    # Upload to S3
+                    s3_uri = upload_smithy_to_s3(smithy_file, bucket_name, object_key)
+                    
+                    # Create target configuration
+                    # Use existing target name if specified, otherwise use default
+                    target_name = existing_target_name if use_existing_target and existing_target_name else "monitor"
+                    target_descr = f"Smithy target for monitoring tools from {file_name}"
+                    # define the target config for the create target config function
+                    target_config = {
+                        "mcp": {
+                            "smithyModel": {
+                                "s3": {
+                                    "uri": s3_uri
+                                }
+                            }
+                        }
+                    }
+                    
+                    print(f"Creating Smithy target: {target_name}")
+                    target_id = create_gateway_target(target_type, gateway_id, target_name, target_descr, target_config)
+                    created_targets.append({
+                        'id': target_id,
+                        'name': target_name,
+                        'type': 'smithy',
+                        's3_uri': s3_uri
+                    })
+                    print(f"✅ Created Smithy target: {target_name} (ID: {target_id})")
+                except Exception as e:
+                    print(f"❌ Failed to create Smithy target for {smithy_file}: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    continue
+    elif target_type == 'lambda':
+        # Handle Lambda targets from new configuration format
+        lambda_configs = targets_config.get('lambda', [])
+        print(f"Processing Lambda targets: {lambda_configs}")
         
-        if tool_use_id not in TOOL_USE_IDS:
-            tool_name = tool.get('name', 'unknown_tool')
-            tool_input = tool.get('input', {})
-            
-            logger.info(f"\n🔧 USING TOOL: {tool_name}")
-            if "input" in tool:
-                logger.info(f"📥 TOOL INPUT: {tool_input}")
-            TOOL_USE_IDS.append(tool_use_id)
+        for lambda_config in lambda_configs:
+            try:
+                function_name = lambda_config.get('function_name')
+                if not function_name:
+                    print("❌ Lambda function_name is required")
+                    continue
+                
+                # Use role_arn if provided, otherwise get from Lambda function
+                function_arn = lambda_config.get('role_arn')
+                if not function_arn:
+                    # Get the Lambda function ARN
+                    lambda_client = boto3.client('lambda', region_name=os.environ.get('AWS_DEFAULT_REGION', 'us-east-1'))
+                    try:
+                        function_response = lambda_client.get_function(FunctionName=function_name)
+                        function_arn = function_response['Configuration']['FunctionArn']
+                        print(f"Found Lambda function ARN: {function_arn}")
+                    except Exception as e:
+                        print(f"❌ Lambda function {function_name} not found: {e}")
+                        continue
+                else:
+                    print(f"Using provided Lambda function ARN: {function_arn}")
+                
+                credential_provider = lambda_config.get('credential_provider', 'GATEWAY_IAM_ROLE')
+                
+                # Load tools from config_struct if provided
+                tools = lambda_config.get('tools', [])
+                config_struct_path = lambda_config.get('config_struct')
+                if config_struct_path:
+                    try:
+                        # Convert relative path to absolute path from project root
+                        if not os.path.isabs(config_struct_path):
+                            config_struct_path = os.path.abspath(config_struct_path)
+                        
+                        print(f"Loading tools from config struct: {config_struct_path}")
+                        with open(config_struct_path, 'r') as f:
+                            config_data = json.load(f)
+                            tools = config_data.get('tools', [])
+                            print(f"Loaded {len(tools)} tools from config struct")
+                    except Exception as e:
+                        print(f"❌ Error loading config struct from {config_struct_path}: {e}")
+                        print("Continuing with empty tools list...")
+                        tools = []
+                
+                # Use existing target name if specified, otherwise use default
+                target_name = existing_target_name if use_existing_target and existing_target_name else "CloudWatchMonitoringLambda"
+                target_descr = f"Lambda target for CloudWatch monitoring tools - {function_name}"
+                
+                # Create Lambda target configuration using the correct format
+                target_config = {
+                    "mcp": {
+                        "lambda": {
+                            "lambdaArn": function_arn,
+                            "toolSchema": {
+                                "inlinePayload": tools
+                            }
+                        }
+                    }
+                }
+                
+                print(f"Creating Lambda target: {target_name}")
+                target_id = create_gateway_target(target_type, gateway_id, target_name, target_descr, target_config)
+                created_targets.append({
+                    'id': target_id,
+                    'name': target_name,
+                    'type': 'lambda',
+                    'function_arn': function_arn
+                })
+                print(f"✅ Created Lambda target: {target_name} (ID: {target_id})")
+                
+            except Exception as e:
+                print(f"❌ Failed to create Lambda target for {lambda_config.get('function_name', 'Unknown')}: {e}")
+                import traceback
+                traceback.print_exc()
+                continue
+                
+    elif target_type == 'openapi':
+        # Process configured targets (legacy support for list-based targets)
+        target_list = targets_config if isinstance(targets_config, list) else []
+        for target in target_list:
+            try:
+                target_name = target.get('name', f"Target_{len(created_targets)}")
+                target_descr = target.get('description', f"Gateway target for {target.get('type')}")
+                
+                print(f"Creating target: {target_name} ({target.get('type')})")
+                
+                target_config = create_target_config(target)
+                target_id = create_gateway_target(target_type, gateway_id, target_name, target_descr, target_config)
+                created_targets.append({
+                    'id': target_id,
+                    'name': target_name,
+                    'type': target.get('type')
+                })
+                print(f"✅ Created {target.get('type')} target: {target_name} (ID: {target_id})")
+            except Exception as e:
+                print(f"❌ Failed to create target {target.get('name', 'Unknown')}: {e}")
+                continue
     
-    # === TOOL RESULTS ===
-    elif "tool_result" in kwargs:
-        tool_result = kwargs["tool_result"]
-        tool_use_id = tool_result.get("toolUseId")
-        result_content = tool_result.get("content", [])
-        
-        logger.info(f"📤 TOOL RESULT: {result_content}")
-    
-    # === LIFECYCLE EVENTS ===
-    elif kwargs.get("init_event_loop", False):
-        logger.info("🔄 Event loop initialized")
-        
-    elif kwargs.get("start_event_loop", False):
-        logger.info("▶️ Event loop cycle starting")
-        
-    elif kwargs.get("start", False):
-        logger.info("📝 New cycle started")
-        
-    elif kwargs.get("complete", False):
-        logger.info("✅ Cycle completed")
-        
-    elif kwargs.get("force_stop", False):
-        reason = kwargs.get("force_stop_reason", "unknown reason")
-        logger.info(f"🛑 Event loop force-stopped: {reason}")
-    
-    # === MESSAGE EVENTS ===
-    elif "message" in kwargs:
-        message = kwargs["message"]
-        role = message.get("role", "unknown")
-        logger.info(f"📬 New message created: {role}")
-    
-    # === ERROR EVENTS ===
-    elif "error" in kwargs:
-        error_info = kwargs["error"]
-        logger.error(f"❌ ERROR: {error_info}")
-
-    # === RAW EVENTS (for debugging) ===
-    elif "event" in kwargs:
-        # Log raw events from the model stream (optional, can be verbose)
-        logger.debug(f"🔍 RAW EVENT: {kwargs['event']}")
-    
-    # === DELTA EVENTS ===
-    elif "delta" in kwargs:
-        # Raw delta content from the model
-        logger.debug(f"📊 DELTA: {kwargs['delta']}")
-    
-    # === CATCH-ALL FOR DEBUGGING ===
-    else:
-        # Log any other events we might have missed
-        logger.debug(f"❓ OTHER EVENT: {kwargs}")
+    return created_targets
