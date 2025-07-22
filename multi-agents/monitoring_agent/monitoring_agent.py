@@ -19,6 +19,7 @@ import shutil
 import logging
 import zipfile
 import subprocess
+from botocore.exceptions import ClientError
 # import the strands agents and strands tools that we will be using
 from strands import Agent
 from datetime import datetime
@@ -38,9 +39,9 @@ from strands_tools.agent_core_memory import AgentCoreMemoryToolProvider
 # Configure the root strands logger
 logging.getLogger("strands").setLevel(logging.DEBUG)
 # ────────── ENABLE DEBUG LOGGING ──────────
-# logging.basicConfig(level=logging.DEBUG)                             # :contentReference[oaicite:3]{index=3}
-# boto3.set_stream_logger('', logging.DEBUG)                          # :contentReference[oaicite:4]{index=4}
-# logging.getLogger('botocore').setLevel(logging.DEBUG)               # :contentReference[oaicite:5]{index=5}
+# logging.basicConfig(level=logging.DEBUG)                             
+# boto3.set_stream_logger('', logging.DEBUG)                          
+# logging.getLogger('botocore').setLevel(logging.DEBUG)               
 # logging.getLogger('urllib3').setLevel(logging.DEBUG)               
 # import httpx      # or just import httpcore if you prefer
 # logging.getLogger('httpx').setLevel(logging.DEBUG)
@@ -65,6 +66,124 @@ from constants import *
 # This is the hook to retrieve, list and 
 # create memories added to the agent
 from memory_hook import MonitoringMemoryHooks
+# Simple observability based on AWS Bedrock AgentCore Strands reference
+import uuid
+try:
+    from opentelemetry import baggage, context
+    OTEL_AVAILABLE = True
+except ImportError:
+    OTEL_AVAILABLE = False
+    logger.warning("OpenTelemetry not available. Install aws-opentelemetry-distro for observability.")
+
+class SimpleObservability:
+    """Simple observability using OpenTelemetry baggage for session tracking"""
+    
+    def __init__(self, service_name="monitoring-agent"):
+        self.service_name = service_name
+        self.enabled = os.getenv("ENABLE_OBSERVABILITY", "true").lower() == "true"
+        self.session_id = f"monitoring_session_{int(time.time())}_{str(uuid.uuid4())[:8]}"
+        self.actor_id = f"actor_{int(time.time())}"
+        
+        if self.enabled and OTEL_AVAILABLE:
+            self._setup_session_context()
+    
+    def _setup_session_context(self):
+        """Set up OpenTelemetry baggage for session tracking"""
+        try:
+            ctx = baggage.set_baggage("session.id", self.session_id)
+            ctx = baggage.set_baggage("user.id", self.actor_id) 
+            ctx = baggage.set_baggage("service.name", self.service_name)
+            context.attach(ctx)
+            logger.info(f"Session context set: {self.session_id}")
+        except Exception as e:
+            logger.warning(f"Failed to set session context: {e}")
+    
+    def get_observability_status(self):
+        if not self.enabled:
+            return "Disabled"
+        if not OTEL_AVAILABLE:
+            return "OpenTelemetry not available - install aws-opentelemetry-distro"
+        return f"Enabled with session: {self.session_id}"
+    
+    def get_session_id(self):
+        return self.session_id
+    
+    def get_actor_id(self):
+        return self.actor_id
+
+class AgentObservabilityHooks:
+    def __init__(self, agent_name):
+        self.agent_name = agent_name
+    
+    def register_hooks(self, hook_registry):
+        """Register hooks with the hook registry"""
+        pass
+    
+    def get_hook_status(self):
+        return f"Simple hooks for {self.agent_name}"
+
+def init_observability(service_name, region_name, log_group_name):
+    return SimpleObservability(service_name)
+
+def get_observability():
+    return _observability_instance
+
+def shutdown_observability():
+    pass
+
+def create_cloudwatch_log_group(log_group_name="/aws/monitoring-agent/traces", region_name=REGION_NAME):
+    """Create CloudWatch log group if it doesn't exist"""
+    try:
+        logs_client = boto3.client('logs', region_name=region_name)
+        
+        # Check if log group exists
+        try:
+            existing_groups = logs_client.describe_log_groups(logGroupNamePrefix=log_group_name)['logGroups']
+            if any(group['logGroupName'] == log_group_name for group in existing_groups):
+                logger.info(f"✅ Log group {log_group_name} already exists")
+                return True
+        except ClientError as e:
+            if e.response['Error']['Code'] != 'ResourceNotFoundException':
+                raise
+        
+        # Create log group
+        logger.info(f"📝 Creating CloudWatch log group: {log_group_name}")
+        logs_client.create_log_group(
+            logGroupName=log_group_name
+        )
+        logger.info(f"✅ Successfully created log group: {log_group_name}")
+        return True
+        
+    except ClientError as e:
+        logger.error(f"❌ Error creating log group: {e}")
+        return False
+    except Exception as e:
+        logger.error(f"❌ Unexpected error creating log group: {e}")
+        return False
+
+def configure_agentcore():
+    """Configure agentcore with the monitoring agent entrypoint"""
+    try:
+        logger.info("🔧 Configuring agentcore with monitoring_agent.py entrypoint...")
+        
+        # Run agentcore configure command
+        cmd = ['agentcore', 'configure', '--entrypoint', 'monitoring_agent.py', '-er', EXECUTION_ROLE_ARN]
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        
+        logger.info("✅ AgentCore configuration successful:")
+        logger.info(result.stdout)
+        return True
+        
+    except subprocess.CalledProcessError as e:
+        logger.error(f"❌ AgentCore configuration failed: {e}")
+        if e.stderr:
+            logger.error(f"Stderr: {e.stderr}")
+        if e.stdout:
+            logger.error(f"Stdout: {e.stdout}")
+        return False
+    except FileNotFoundError:
+        logger.error("❌ 'agentcore' command not found. Please ensure AgentCore CLI is installed.")
+        return False
 
 # set a logger
 logging.basicConfig(format='[%(asctime)s] p%(process)s {%(filename)s:%(lineno)d} %(levelname)s - %(message)s', level=logging.INFO)
@@ -74,6 +193,23 @@ logger = logging.getLogger(__name__)
 config_data = load_config(f'../{CONFIG_FNAME}')
 logger.info(f"Loaded config from local file system: {json.dumps(config_data, indent=2)}")
 from typing import Dict, List
+
+# ────────────────────────────────────────────────────────────────────────────────────
+# OBSERVABILITY INITIALIZATION
+# ────────────────────────────────────────────────────────────────────────────────────
+
+# Initialize simple observability system
+_observability_instance = None
+try:
+    _observability_instance = init_observability(
+        service_name="monitoring-agent",
+        region_name=REGION_NAME,
+        log_group_name="/aws/monitoring-agent/traces"
+    )
+    logger.info(f"✅ Observability initialized: {_observability_instance.get_observability_status()}")
+except Exception as e:
+    logger.warning(f"⚠️ Failed to initialize observability: {e}")
+    logger.info("Continuing without observability features...")
 
 # ────────────────────────────────────────────────────────────────────────────────────
 # AGENTCORE MEMORY PRIMITIVE INITIALIZATION
@@ -175,14 +311,25 @@ else:
             raise
 logger.info(f"Using memory with ID: {memory_id}")
 
-# Create memory hooks instance
+# Create memory hooks instance - use observability session/actor IDs if available
+session_id = _observability_instance.get_session_id() if _observability_instance else f"monitoring_session_{int(time.time())}"
+actor_id = _observability_instance.get_actor_id() if _observability_instance else f'default_actor_{int(time.time())}'
+
 monitoring_hooks = MonitoringMemoryHooks(
     memory_id=memory_id,
     client=client,
-    actor_id=config_data['agent_information']['monitoring_agent_model_info'].get('memory_allocation').get('actor_id', f'default_actor_{int(time.time())}'),  # Replace with actual actor ID
-    session_id=f"monitoring_session_{int(time.time())}"  # Replace with actual session ID
+    actor_id=config_data['agent_information']['monitoring_agent_model_info'].get('memory_allocation').get('actor_id', actor_id),
+    session_id=session_id
 )
 print(f"created the memory hook: {monitoring_hooks}")
+
+# Create observability hooks instance
+try:
+    observability_hooks = AgentObservabilityHooks(agent_name="monitoring-agent")
+    logger.info(f"✅ Observability hooks initialized: {observability_hooks.get_hook_status()}")
+except Exception as e:
+    logger.warning(f"⚠️ Failed to initialize observability hooks: {e}")
+    observability_hooks = None
 
 # We will be using this hook in the agent creation process
 logger.info(f"Going to create the memory gateway for this agent....")
@@ -631,86 +778,306 @@ bedrock_model = BedrockModel(
 )
 print(f"Initialized the bedrock model for the finance agent: {bedrock_model}")
 
-# Create agent with MCP tools from Gateway
-# Set up MCP client to connect to the AgentCore Gateway
-from strands.tools.mcp.mcp_client import MCPClient
-from mcp.client.streamable_http import streamablehttp_client 
+# Add imports for the agentcore runtime
+from bedrock_agentcore.runtime import BedrockAgentCoreApp
+import httpx
 
-# Use existing gateway credentials already loaded above
-
-def create_streamable_http_transport():
+def basic_genesis_strands_agent(user_message: str):
     """
-    This is the client to return a streamablehttp access token
+    Basic agent implementation using Strands framework
+    This function creates and runs the monitoring agent
     """
-    return streamablehttp_client(mcp_url, headers={"Authorization": f"Bearer {access_token}"})
+    # Create agent with MCP tools from Gateway
+    # Set up MCP client to connect to the AgentCore Gateway
+    from strands.tools.mcp.mcp_client import MCPClient
+    from mcp.client.streamable_http import streamablehttp_client 
 
-# Create MCP client
-mcp_client = MCPClient(create_streamable_http_transport)
+    def create_streamable_http_transport():
+        """
+        This is the client to return a streamablehttp access token
+        """
+        return streamablehttp_client(mcp_url, headers={"Authorization": f"Bearer {access_token}"})
 
-# Use the MCP client in context manager to get tools
-print(f"Starting the MCP session for the monitoring agent...")
-with mcp_client:
-    # Get tools from the Gateway (these are the OpenAPI tools converted to MCP)
-    print(f"Going to list tools from the MCP client")
-    try:
-        gateway_tools = mcp_client.list_tools_sync()
-        print(f"Loaded {len(gateway_tools)} tools from Gateway: {[tool for tool in gateway_tools]}")
-    except Exception as tools_error:
-        print(f"❌ Error listing tools from Gateway MCP server: {tools_error}")
-        print(f"   This usually means the Gateway server returned an invalid response")
-        print(f"   Expected format: {{'tools': [...]}}, but got empty result: {{}}")
-        print(f"   Falling back to no Gateway tools - agent will run without MCP tools")
-        gateway_tools = []
-    
-    # Create agent with Gateway MCP tools + memory hooks
-    agent = Agent(
-        system_prompt=MONITORING_AGENT_SYSTEM_PROMPT,
-        model=bedrock_model,
-        hooks=[monitoring_hooks],
-        tools=gateway_tools
-    )
-    
-    print(f"✅ Created monitoring agent with Gateway MCP tools!")
-    
-    # Interactive terminal chat loop
-    print("\n" + "="*60)
-    print("🤖 AWS Monitoring Agent - Interactive Terminal Chat")
-    print("="*60)
-    print("Type 'exit', 'quit', or 'q' to end the session")
-    print("Type 'help' for available commands")
-    print("-"*60)
-    
-    while True:
+    # Create MCP client
+    mcp_client = MCPClient(create_streamable_http_transport)
+
+    # Use the MCP client in context manager to get tools
+    print(f"Starting the MCP session for the monitoring agent...")
+    with mcp_client:
+        # Get tools from the Gateway (these are the OpenAPI tools converted to MCP)
+        print(f"Going to list tools from the MCP client")
         try:
-            # Get user input
-            user_input = input("\n👤 You: ").strip()
-            
-            # Check for exit commands
-            if user_input.lower() in ['exit', 'quit', 'q']:
-                print("\n👋 Goodbye! Monitoring session ended.")
+            gateway_tools = mcp_client.list_tools_sync()
+            print(f"Loaded {len(gateway_tools)} tools from Gateway: {[tool for tool in gateway_tools]}")
+        except Exception as tools_error:
+            print(f"❌ Error listing tools from Gateway MCP server: {tools_error}")
+            print(f"   This usually means the Gateway server returned an invalid response")
+            print(f"   Expected format: {{'tools': [...]}}, but got empty result: {{}}")
+            print(f"   Falling back to no Gateway tools - agent will run without MCP tools")
+            gateway_tools = []
+        
+        # Create agent with Gateway MCP tools + memory hooks + observability hooks
+        hooks = [monitoring_hooks]
+        if observability_hooks:
+            hooks.append(observability_hooks)
+        
+        agent = Agent(
+            system_prompt=MONITORING_AGENT_SYSTEM_PROMPT,
+            model=bedrock_model,
+            hooks=hooks,
+            tools=gateway_tools
+        )
+        
+        print(f"✅ Created monitoring agent with Gateway MCP tools!")
+        
+        # Process the user input through the agent
+        try:
+            response = agent(user_message)
+            return response
+        except Exception as agent_error:
+            logger.error(f"Agent error: {agent_error}")
+            raise agent_error
+
+def invoke_remote_agent(endpoint_url: str, user_message: str):
+    """
+    Invoke a remote agent via HTTP endpoint
+    """
+    try:
+        payload = {"prompt": user_message}
+        with httpx.Client() as client:
+            response = client.post(
+                f"{endpoint_url}/invocations",
+                json=payload,
+                headers={"Content-Type": "application/json"},
+                timeout=300.0
+            )
+            response.raise_for_status()
+            result = response.json()
+            return type('Response', (), {'message': result.get('result', 'No response')})()
+    except Exception as e:
+        logger.error(f"Error invoking remote agent: {e}")
+        raise
+
+# Print hardcoded parameters for config.yaml reference
+print("\n" + "="*60)
+print("📋 HARDCODED PARAMETERS FOR CONFIG.YAML:")
+print("="*60)
+print(f"REGION_NAME: {REGION_NAME}")
+print(f"EXECUTION_ROLE_ARN: {EXECUTION_ROLE_ARN}")
+print(f"MONITORING_GATEWAY_NAME: {MONITORING_GATEWAY_NAME}")
+print(f"CONFIG_FNAME: {CONFIG_FNAME}")
+print(f"MONITORING_CUSTOM_EXTRACTION_PROMPT_FPATH: {MONITORING_CUSTOM_EXTRACTION_PROMPT_FPATH}")
+print(f"MONITORING_CONSOLIDATION_EXTRACTION_PROMPT_FPATH: {MONITORING_CONSOLIDATION_EXTRACTION_PROMPT_FPATH}")
+print(f"MONITORING_GATEWAY_CREDENTIALS_PATH: {MONITORING_GATEWAY_CREDENTIALS_PATH}")
+print(f"MCP_PROTOCOL: {MCP_PROTOCOL}")
+print(f"AUTH_TYPE_CUSTOM_JWT: {AUTH_TYPE_CUSTOM_JWT}")
+print("="*60)
+
+# Check for remote agent endpoint in config
+remote_agent_url = config_data.get('agent_information').get('monitoring_agent_model_info').get('remote_endpoint_url')
+logger.info(f"Going to use the remote agent runtime for the monitoring: {remote_agent_url}")
+
+# Check for AgentCore runtime configuration
+gateway_config = config_data.get('agent_information', {}).get('monitoring_agent_model_info', {}).get('gateway_config', {})
+runtime_exec_role = gateway_config.get('runtime_exec_role')
+launch_agentcore_runtime = gateway_config.get('launch_agentcore_runtime', False)
+
+logger.info(f"Runtime execution role: {runtime_exec_role}")
+logger.info(f"Launch AgentCore runtime: {launch_agentcore_runtime}")
+
+# Initialize app for agentcore runtime only if conditions are met
+app = None
+if runtime_exec_role and launch_agentcore_runtime:
+    logger.info("✅ AgentCore runtime conditions met - initializing RuntimeClient")
+    app = BedrockAgentCoreApp()
+else:
+    logger.info("ℹ️  AgentCore runtime conditions not met - running in local mode only")
+
+def invoke(payload):
+    '''
+    This is the function that is used as an entrypoint function
+    to invoke the agent. This agent can be built using LangGraph, 
+    Strands or Bedrock agents, or any other framework for that matter.
+    This runtime is agent framework agnostic.
+    '''
+    user_message = payload.get("prompt", "You are a monitoring agent to help with AWS monitoring related queries.")
+    print(f"Going to invoke the agent with the following prompt: {user_message}")
+    
+    # Check if remote endpoint is configured
+    if remote_agent_url:
+        print(f"Using remote agent endpoint: {remote_agent_url}")
+        response = invoke_remote_agent(remote_agent_url, user_message)
+    else:
+        print("Using local agent implementation")
+        response = basic_genesis_strands_agent(user_message)
+    
+    return {"result": response.message}
+
+# Register entrypoint only if app is initialized
+if app:
+    app.entrypoint(invoke)
+
+# Running this starts a service 
+# The server starts at http://localhost:8080
+# Test with curl:
+# curl -X POST http://localhost:8080/invocations \
+# -H "Content-Type: application/json" \
+# -d '{"prompt": "Hello world!"}'
+
+# Next steps for AgentCore deployment:
+# 
+# 1. Ensure this agent code is in a repository with:
+#    - monitoring_agent.py (this file)
+#    - requirements.txt (with all dependencies)
+#    - __init__.py (empty file)
+#
+# 2. Create an IAM execution role with permissions for:
+#    - Amazon Bedrock access
+#    - CloudWatch logs/metrics access
+#    - Any other AWS services the agent needs
+#
+# 3. Configure the agent using agentcore CLI:
+#    agentcore configure --entrypoint monitoring_agent.py -er <YOUR_IAM_ROLE_ARN>
+#    
+#    Example:
+#    agentcore configure --entrypoint monitoring_agent.py \
+#        -er arn:aws:iam::123456789012:role/service-role/Amazon-Bedrock-IAM-Role
+#
+# 4. Deploy options:
+#    
+#    OPTION A - Launch locally:
+#    agentcore launch -l
+#    # This builds a docker image and runs it locally at localhost:8080
+#    
+#    OPTION B - Launch to AWS cloud:
+#    agentcore launch
+#    # This builds docker image, pushes to ECR, creates agentcore runtime, and deploys
+#
+# 5. Make sure your requirements.txt contains all packages needed:
+#    - strands
+#    - boto3
+#    - bedrock-agentcore-starter-toolkit
+#    - python-dotenv
+#    - httpx
+#    - opentelemetry-distro[otlp] (if using observability)
+#
+# 6. IMPORTANT - Trust Policy for IAM Role:
+#    Your IAM execution role must have a trust policy that allows:
+#    - bedrock.amazonaws.com
+#    - bedrock-agentcore.amazonaws.com
+#    
+#    Example trust policy:
+#    {
+#      "Version": "2012-10-17",
+#      "Statement": [
+#        {
+#          "Effect": "Allow",
+#          "Principal": {
+#            "Service": [
+#              "bedrock.amazonaws.com",
+#              "bedrock-agentcore.amazonaws.com"
+#            ]
+#          },
+#          "Action": "sts:AssumeRole"
+#        }
+#      ]
+#    }
+
+if __name__ == "__main__":
+    # Check if AgentCore runtime should be launched
+    if runtime_exec_role and launch_agentcore_runtime and app:
+        print(f"\n🚀 Setting up AgentCore runtime with execution role: {runtime_exec_role}")
+        
+        # Step 1: Create CloudWatch log group
+        print("Step 1: Creating CloudWatch log group...")
+        create_cloudwatch_log_group()
+        
+        # Step 2: Configure agentcore
+        print("Step 2: Configuring agentcore...")
+        if not configure_agentcore():
+            print("❌ AgentCore configuration failed. Cannot proceed with launch.")
+            sys.exit(1)
+        
+        # Step 3: Launch agentcore
+        print("Step 3: Launching agentcore...")
+        print("Running: agentcore launch")
+        print("# This builds docker image, pushes to ECR, creates agentcore runtime, and deploys")
+        
+        # Run the agentcore launch command
+        try:
+            result = subprocess.run(['agentcore', 'launch'], 
+                                  capture_output=True, text=True, check=True)
+            print(f"✅ AgentCore launch successful:")
+            print(result.stdout)
+        except subprocess.CalledProcessError as e:
+            print(f"❌ AgentCore launch failed:")
+            print(f"Error: {e}")
+            print(f"Stderr: {e.stderr}")
+            print(f"Stdout: {e.stdout}")
+        except FileNotFoundError:
+            print("❌ 'agentcore' command not found. Please ensure AgentCore CLI is installed.")
+    
+    elif remote_agent_url:
+        print(f"\n🌐 Remote agent endpoint configured: {remote_agent_url}")
+        print("Starting agentcore runtime server...")
+        if app:
+            app.run()
+    else:
+        print("\n🏠 No remote endpoint configured, running local interactive mode...")
+        # Interactive terminal chat loop
+        print("\n" + "="*60)
+        print("🤖 AWS Monitoring Agent - Interactive Terminal Chat")
+        print("="*60)
+        print("Type 'exit', 'quit', or 'q' to end the session")
+        print("Type 'help' for available commands")
+        print("-"*60)
+        
+        while True:
+            try:
+                # Get user input
+                user_input = input("\n👤 You: ").strip()
+                
+                # Check for exit commands
+                if user_input.lower() in ['exit', 'quit', 'q']:
+                    print("\n👋 Goodbye! Monitoring session ended.")
+                    break
+                
+                # Check for help command
+                if user_input.lower() == 'help':
+                    print("\n📚 Available commands:")
+                    print("• Ask about CloudWatch logs, alarms, or dashboards")
+                    print("• Request monitoring for specific AWS services")
+                    print("• Ask for cross-account monitoring (provide account ID and role)")
+                    print("• Type 'exit', 'quit', or 'q' to end the session")
+                    continue
+                
+                # Skip empty input
+                if not user_input:
+                    continue
+                
+                # Process the user input through the agent
+                print("\n🤖 Agent: ", end="", flush=True)
+                
+                # Process agent request - automatic tracing via opentelemetry-instrument
+                try:
+                    response = basic_genesis_strands_agent(user_input)
+                    
+                except Exception as agent_error:
+                    logger.error(f"Agent error: {agent_error}")
+                    raise agent_error
+                
+                print(f"\n{response}")
+                
+            except KeyboardInterrupt:
+                print("\n\n👋 Session interrupted. Goodbye!")
                 break
-            
-            # Check for help command
-            if user_input.lower() == 'help':
-                print("\n📚 Available commands:")
-                print("• Ask about CloudWatch logs, alarms, or dashboards")
-                print("• Request monitoring for specific AWS services")
-                print("• Ask for cross-account monitoring (provide account ID and role)")
-                print("• Type 'exit', 'quit', or 'q' to end the session")
-                continue
-            
-            # Skip empty input
-            if not user_input:
-                continue
-            
-            # Process the user input through the agent
-            print("\n🤖 Agent: ", end="", flush=True)
-            response = agent(user_input)
-            print(f"\n{response}")
-            
-        except KeyboardInterrupt:
-            print("\n\n👋 Session interrupted. Goodbye!")
-            break
+            except Exception as e:
+                print(f"\n❌ Error: {e}")
+                print("Please try again or type 'exit' to end the session.")
+        
+        # Cleanup observability on exit
+        try:
+            shutdown_observability()
+            logger.info("✅ Observability shutdown complete")
         except Exception as e:
-            print(f"\n❌ Error: {e}")
-            print("Please try again or type 'exit' to end the session.")
+            logger.warning(f"⚠️ Error during observability shutdown: {e}")
