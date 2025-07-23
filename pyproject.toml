@@ -3,14 +3,19 @@ name = "genesis"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.13"
 dependencies = [
     "bedrock-agentcore>=0.1.0",
     "bedrock-agentcore-starter-toolkit>=0.1.0",
     "pip>=25.1.1",
     "pyyaml>=6.0.2",
-    "strands-agents>=1.0.0",
-    "strands-agents-tools>=0.2.1",
+    "strands-agents[otel]>=1.0.0",
+    "strands-agents-tools",
+    "boto3",
+    "botocore",
+    "duckduckgo-search",
+    "aws-opentelemetry-distro==0.10.0",
+    "python-dotenv",
     "zmq>=0.0.0",
 ]
 

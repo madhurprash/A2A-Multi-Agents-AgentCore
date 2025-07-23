@@ -1,9 +1,14 @@
 import os
+import json
 import boto3
+from utils import load_config
 
 # This is the path of the config file that contains information about the 
 # agents and the respective primitives
 CONFIG_FNAME: str = "config.yaml"
+# Load the config file. 
+config_data = load_config(CONFIG_FNAME)
+print(f"Config data in constants: {json.dumps(config_data, indent=4)}")
 
 # These are the tool use IDs that are initialized for the strands based
 # callback handler functions
@@ -32,3 +37,8 @@ REGION_NAME = boto3.Session().region_name
 ACCOUNT_ID = boto3.client("sts").get_caller_identity()["Account"]
 EXECUTION_ROLE_ARN = f"arn:aws:iam::{ACCOUNT_ID}:role/GenesisGatewayExecutionRole"
 LAMBDA_ARN = f"arn:aws:lambda:{REGION_NAME}:{ACCOUNT_ID}:function:AgentGatewayFunction"
+
+# This is the prompt template directory for the agents
+# Read the monitoring agent system prompt from the template file
+PROMPT_TEMPLATE = config_data['agent_information']['prompt_templates']
+PROMPT_TEMPLATE_DIR = PROMPT_TEMPLATE['prompt_template_dir']

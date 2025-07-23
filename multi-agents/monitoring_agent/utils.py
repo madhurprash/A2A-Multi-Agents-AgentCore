@@ -328,36 +328,43 @@ def create_agentcore_role(agent_name):
         assume_role_policy_document
     )
     role_policy_document = json.dumps(role_policy)
-    # Create IAM Role for the Lambda function
+    # Check if role already exists before attempting creation
     try:
-        agentcore_iam_role = iam_client.create_role(
-            RoleName=agentcore_role_name,
-            AssumeRolePolicyDocument=assume_role_policy_document_json
-        )
-
-        # Pause to make sure role is created
-        time.sleep(10)
-    except iam_client.exceptions.EntityAlreadyExistsException:
-        print("Role already exists -- deleting and creating it again")
-        policies = iam_client.list_role_policies(
+        # Try to get existing role
+        existing_role = iam_client.get_role(RoleName=agentcore_role_name)
+        print(f"Role {agentcore_role_name} already exists, using existing role")
+        agentcore_iam_role = existing_role['Role']
+    except iam_client.exceptions.NoSuchEntityException:
+        # Role doesn't exist, create it
+        try:
+            agentcore_iam_role = iam_client.create_role(
+                RoleName=agentcore_role_name,
+                AssumeRolePolicyDocument=assume_role_policy_document_json
+            )
+            print(f"Created new role {agentcore_role_name}")
+            # Pause to make sure role is created
+            time.sleep(10)
+        except iam_client.exceptions.EntityAlreadyExistsException:
+            print("Role already exists -- deleting and creating it again")
+            policies = iam_client.list_role_policies(
             RoleName=agentcore_role_name,
             MaxItems=100
-        )
-        print("policies:", policies)
-        for policy_name in policies['PolicyNames']:
-            iam_client.delete_role_policy(
-                RoleName=agentcore_role_name,
-                PolicyName=policy_name
             )
-        print(f"deleting {agentcore_role_name}")
-        iam_client.delete_role(
-            RoleName=agentcore_role_name
-        )
-        print(f"recreating {agentcore_role_name}")
-        agentcore_iam_role = iam_client.create_role(
-            RoleName=agentcore_role_name,
-            AssumeRolePolicyDocument=assume_role_policy_document_json
-        )
+            print("policies:", policies)
+            for policy_name in policies['PolicyNames']:
+                iam_client.delete_role_policy(
+                    RoleName=agentcore_role_name,
+                    PolicyName=policy_name
+                )
+            print(f"deleting {agentcore_role_name}")
+            iam_client.delete_role(
+                RoleName=agentcore_role_name
+            )
+            print(f"recreating {agentcore_role_name}")
+            agentcore_iam_role = iam_client.create_role(
+                RoleName=agentcore_role_name,
+                AssumeRolePolicyDocument=assume_role_policy_document_json
+            )
 
     # Attach the AWSLambdaBasicExecutionRole policy
     print(f"attaching role policy {agentcore_role_name}")
@@ -423,21 +430,32 @@ def create_agentcore_gateway_role(gateway_name):
     )
 
     role_policy_document = json.dumps(role_policy)
-    # Create IAM Role for the Lambda function
+    # Check if role already exists before attempting creation
     try:
-        agentcore_iam_role = iam_client.create_role(
-            RoleName=agentcore_gateway_role_name,
-            AssumeRolePolicyDocument=assume_role_policy_document_json
-        )
-
-        # Pause to make sure role is created
-        time.sleep(10)
-    except iam_client.exceptions.EntityAlreadyExistsException:
-        print("Role already exists -- deleting and creating it again")
-        policies = iam_client.list_role_policies(
-            RoleName=agentcore_gateway_role_name,
-            MaxItems=100
-        )
+        # Try to get existing role
+        existing_role = iam_client.get_role(RoleName=agentcore_gateway_role_name)
+        print(f"Role {agentcore_gateway_role_name} already exists, using existing role")
+        agentcore_iam_role = existing_role['Role']
+    except iam_client.exceptions.NoSuchEntityException:
+        # Role doesn't exist, create it
+        try:
+            agentcore_iam_role = iam_client.create_role(
+                RoleName=agentcore_gateway_role_name,
+                AssumeRolePolicyDocument=assume_role_policy_document_json
+            )
+            print(f"Created new role {agentcore_gateway_role_name}")
+            # Pause to make sure role is created
+            time.sleep(10)
+        except iam_client.exceptions.EntityAlreadyExistsException:
+            print("Role already exists -- deleting and creating it again")
+        try:
+            policies = iam_client.list_role_policies(
+                RoleName=agentcore_gateway_role_name,
+                MaxItems=100
+            )
+        except iam_client.exceptions.NoSuchEntityException:
+            print(f"Role {agentcore_gateway_role_name} not found during cleanup")
+            policies = {'PolicyNames': []}
         print("policies:", policies)
         for policy_name in policies['PolicyNames']:
             iam_client.delete_role_policy(
@@ -523,36 +541,47 @@ def create_agentcore_gateway_role_s3_smithy(gateway_name):
     )
 
     role_policy_document = json.dumps(role_policy)
-    # Create IAM Role for the Lambda function
+    # Check if role already exists before attempting creation
     try:
-        agentcore_iam_role = iam_client.create_role(
-            RoleName=agentcore_gateway_role_name,
-            AssumeRolePolicyDocument=assume_role_policy_document_json
-        )
-
-        # Pause to make sure role is created
-        time.sleep(10)
-    except iam_client.exceptions.EntityAlreadyExistsException:
-        print("Role already exists -- deleting and creating it again")
-        policies = iam_client.list_role_policies(
-            RoleName=agentcore_gateway_role_name,
-            MaxItems=100
-        )
-        print("policies:", policies)
-        for policy_name in policies['PolicyNames']:
-            iam_client.delete_role_policy(
+        # Try to get existing role
+        existing_role = iam_client.get_role(RoleName=agentcore_gateway_role_name)
+        print(f"Role {agentcore_gateway_role_name} already exists, using existing role")
+        agentcore_iam_role = existing_role
+    except iam_client.exceptions.NoSuchEntityException:
+        # Role doesn't exist, create it
+        try:
+            agentcore_iam_role = iam_client.create_role(
                 RoleName=agentcore_gateway_role_name,
-                PolicyName=policy_name
+                AssumeRolePolicyDocument=assume_role_policy_document_json
             )
-        print(f"deleting {agentcore_gateway_role_name}")
-        iam_client.delete_role(
-            RoleName=agentcore_gateway_role_name
-        )
-        print(f"recreating {agentcore_gateway_role_name}")
-        agentcore_iam_role = iam_client.create_role(
-            RoleName=agentcore_gateway_role_name,
-            AssumeRolePolicyDocument=assume_role_policy_document_json
-        )
+            print(f"Created new role {agentcore_gateway_role_name}")
+            # Pause to make sure role is created
+            time.sleep(10)
+        except iam_client.exceptions.EntityAlreadyExistsException:
+            print("Role already exists -- deleting and creating it again")
+            try:
+                policies = iam_client.list_role_policies(
+                    RoleName=agentcore_gateway_role_name,
+                    MaxItems=100
+                )
+            except iam_client.exceptions.NoSuchEntityException:
+                print(f"Role {agentcore_gateway_role_name} not found during cleanup")
+                policies = {'PolicyNames': []}
+            print("policies:", policies)
+            for policy_name in policies['PolicyNames']:
+                iam_client.delete_role_policy(
+                    RoleName=agentcore_gateway_role_name,
+                    PolicyName=policy_name
+                )
+            print(f"deleting {agentcore_gateway_role_name}")
+            iam_client.delete_role(
+                RoleName=agentcore_gateway_role_name
+            )
+            print(f"recreating {agentcore_gateway_role_name}")
+            agentcore_iam_role = iam_client.create_role(
+                RoleName=agentcore_gateway_role_name,
+                AssumeRolePolicyDocument=assume_role_policy_document_json
+            )
 
     # Attach the AWSLambdaBasicExecutionRole policy
     print(f"attaching role policy {agentcore_gateway_role_name}")

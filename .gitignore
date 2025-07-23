@@ -78,6 +78,15 @@ GenesisSDKExamples/
 .aws/
 aws-exports.js
 
+# AWS Bedrock AgentCore files
+.bedrock_agentcore.yaml
+**/.bedrock_agentcore.yaml
+**/bedrock_agentcore.yaml
+
+# Docker files with potential secrets
+**/Dockerfile
+**/.dockerignore
+
 # Coverage reports
 htmlcov/
 .coverage
