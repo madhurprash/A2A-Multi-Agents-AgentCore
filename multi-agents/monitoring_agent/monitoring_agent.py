@@ -618,11 +618,6 @@ if not mcp_url or not access_token or not gateway_id:
                     authorizerType=AUTH_TYPE_CUSTOM_JWT,
                     authorizerConfiguration=auth_config, 
                     description='AgentCore Gateway with target for monitoring tools'
-                    # Add observability to the gateway
-                    # observability_config={        
-                    #     "cloudwatch_metrics_enabled": True,
-                    #     "xray_enabled": True
-                    # }
                 )
                 gateway_id = create_response.get("gatewayId")
                 mcp_url = create_response.get("gatewayUrl")
