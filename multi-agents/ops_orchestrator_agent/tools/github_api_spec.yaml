@@ -1,54 +1,42 @@
+# GitHub API for Ops Orchestrator Agent (OpenAPI 3.0.0)
 openapi: 3.0.0
 info:
   title: GitHub API for Ops Orchestrator Agent
-  description: GitHub REST API endpoints for issue triaging, repository operations, and report creation
   version: 1.0.0
-  contact:
-    name: GitHub API
-    url: https://docs.github.com/en/rest
+  description: REST endpoints for repository, issue, and content operations
 servers:
   - url: https://api.github.com
-    description: GitHub API v4
-security:
-  - github_token: []
-  - github_app: []
-
+    description: GitHub REST API v3
 paths:
   /repos/{owner}/{repo}/issues:
     get:
-      summary: List repository issues
-      description: List issues in a repository for triaging and management
       operationId: listIssues
+      summary: List repository issues
       parameters:
         - name: owner
           in: path
           required: true
           schema:
             type: string
-          description: The account owner of the repository
         - name: repo
           in: path
           required: true
           schema:
             type: string
-          description: The name of the repository
         - name: state
           in: query
           schema:
             type: string
             enum: [open, closed, all]
             default: open
-          description: Issue state filter
         - name: labels
           in: query
           schema:
             type: string
-          description: Comma-separated list of label names
         - name: assignee
           in: query
           schema:
             type: string
-          description: Username of the assignee
         - name: per_page
           in: query
           schema:
@@ -56,14 +44,12 @@ paths:
             minimum: 1
             maximum: 100
             default: 30
-          description: Results per page
         - name: page
           in: query
           schema:
             type: integer
             minimum: 1
             default: 1
-          description: Page number
       responses:
         '200':
           description: Successful response
@@ -73,13 +59,9 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/Issue'
-        '404':
-          description: Repository not found
-
     post:
-      summary: Create an issue
-      description: Create a new issue for incident reporting or task tracking
       operationId: createIssue
+      summary: Create an issue
       parameters:
         - name: owner
           in: path
@@ -102,23 +84,18 @@ paths:
               properties:
                 title:
                   type: string
-                  description: The title of the issue
                 body:
                   type: string
-                  description: The contents of the issue
                 assignees:
                   type: array
                   items:
                     type: string
-                  description: Logins for Users to assign to this issue
                 labels:
                   type: array
                   items:
                     type: string
-                  description: Labels to associate with this issue
                 milestone:
                   type: integer
-                  description: The milestone to associate this issue with
       responses:
         '201':
           description: Issue created successfully
@@ -126,14 +103,10 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Issue'
-        '422':
-          description: Validation failed
-
   /repos/{owner}/{repo}/issues/{issue_number}:
     get:
-      summary: Get an issue
-      description: Get details of a specific issue
       operationId: getIssue
+      summary: Get an issue
       parameters:
         - name: owner
           in: path
@@ -157,13 +130,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Issue'
-        '404':
-          description: Issue not found
-
     patch:
-      summary: Update an issue
-      description: Update an issue's status, labels, or other properties
       operationId: updateIssue
+      summary: Update an issue
       parameters:
         - name: owner
           in: path
@@ -209,12 +178,10 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Issue'
-
   /repos/{owner}/{repo}/labels:
     get:
-      summary: List repository labels
-      description: Get all labels for a repository
       operationId: listLabels
+      summary: List repository labels
       parameters:
         - name: owner
           in: path
@@ -235,11 +202,9 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/Label'
-
     post:
-      summary: Create a label
-      description: Create a new label for issue categorization
       operationId: createLabel
+      summary: Create a label
       parameters:
         - name: owner
           in: path
@@ -263,14 +228,11 @@ paths:
               properties:
                 name:
                   type: string
-                  description: The name of the label
                 color:
                   type: string
                   pattern: '^[0-9a-fA-F]{6}$'
-                  description: The hexadecimal color code (without #)
                 description:
                   type: string
-                  description: Description of the label
       responses:
         '201':
           description: Label created successfully
@@ -278,12 +240,10 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Label'
-
   /repos/{owner}/{repo}/contents/{path}:
     get:
-      summary: Get repository content
-      description: Get contents of a file or directory
       operationId: getContent
+      summary: Get repository content
       parameters:
         - name: owner
           in: path
@@ -304,7 +264,6 @@ paths:
           in: query
           schema:
             type: string
-          description: Branch, tag, or commit
       responses:
         '200':
           description: Successful response
@@ -312,11 +271,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Content'
-
     put:
-      summary: Create or update file contents
-      description: Create or update a file in the repository (for report generation)
       operationId: createOrUpdateFileContents
+      summary: Create or update file contents
       parameters:
         - name: owner
           in: path
@@ -345,17 +302,13 @@ paths:
               properties:
                 message:
                   type: string
-                  description: Commit message
                 content:
                   type: string
                   format: byte
-                  description: Base64 encoded content
                 sha:
                   type: string
-                  description: SHA of the existing file (required for updates)
                 branch:
                   type: string
-                  description: Branch to commit to
                 committer:
                   $ref: '#/components/schemas/GitUser'
                 author:
@@ -365,80 +318,27 @@ paths:
           description: File created successfully
         '200':
           description: File updated successfully
-        '422':
-          description: Validation failed
-
-  /repos/{owner}/{repo}:
-    get:
-      summary: Get a repository
-      description: Get repository information
-      operationId: getRepository
-      parameters:
-        - name: owner
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: repo
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        '200':
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Repository'
-
 components:
-  securitySchemes:
-    github_token:
-      type: http
-      scheme: bearer
-      description: GitHub Personal Access Token or OAuth token
-    github_app:
-      type: http
-      scheme: bearer
-      description: GitHub App installation token
-
   schemas:
     Issue:
       type: object
       properties:
-        id:
-          type: integer
-        number:
-          type: integer
-        title:
-          type: string
-        body:
-          type: string
-          nullable: true
-        state:
-          type: string
-          enum: [open, closed]
+        id: { type: integer }
+        number: { type: integer }
+        title: { type: string }
+        body: { type: string, nullable: true }
+        state: { type: string, enum: [open, closed] }
         user:
           $ref: '#/components/schemas/User'
         assignees:
           type: array
-          items:
-            $ref: '#/components/schemas/User'
+          items: { $ref: '#/components/schemas/User' }
         labels:
           type: array
-          items:
-            $ref: '#/components/schemas/Label'
-        created_at:
-          type: string
-          format: date-time
-        updated_at:
-          type: string
-          format: date-time
-        html_url:
-          type: string
-          format: uri
-
+          items: { $ref: '#/components/schemas/Label' }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        html_url: { type: string, format: uri }
     Label:
       type: object
       properties:
@@ -456,91 +356,31 @@ components:
         url:
           type: string
           format: uri
-
     User:
       type: object
       properties:
-        login:
-          type: string
-        id:
-          type: integer
-        avatar_url:
-          type: string
-          format: uri
-        html_url:
-          type: string
-          format: uri
-        type:
-          type: string
-
+        login:      { type: string }
+        id:         { type: integer }
+        avatar_url: { type: string, format: uri }
+        html_url:   { type: string, format: uri }
+        type:       { type: string }
     Content:
       type: object
       properties:
-        name:
-          type: string
-        path:
-          type: string
-        sha:
-          type: string
-        size:
-          type: integer
-        url:
-          type: string
-          format: uri
-        html_url:
-          type: string
-          format: uri
-        git_url:
-          type: string
-          format: uri
-        download_url:
-          type: string
-          format: uri
-          nullable: true
-        type:
-          type: string
-          enum: [file, dir]
-        content:
-          type: string
-          description: Base64 encoded content (for files)
-        encoding:
-          type: string
-
-    Repository:
-      type: object
-      properties:
-        id:
-          type: integer
-        name:
-          type: string
-        full_name:
-          type: string
-        description:
-          type: string
-          nullable: true
-        private:
-          type: boolean
-        html_url:
-          type: string
-          format: uri
-        clone_url:
-          type: string
-          format: uri
-        ssh_url:
-          type: string
-        default_branch:
-          type: string
-        owner:
-          $ref: '#/components/schemas/User'
-
+        name:         { type: string }
+        path:         { type: string }
+        sha:          { type: string }
+        size:         { type: integer }
+        url:          { type: string, format: uri }
+        html_url:     { type: string, format: uri }
+        git_url:      { type: string, format: uri }
+        download_url: { type: string, format: uri, nullable: true }
+        type:         { type: string, enum: [file, dir] }
+        content:      { type: string }
+        encoding:     { type: string }
     GitUser:
       type: object
       properties:
-        name:
-          type: string
-        email:
-          type: string
-          format: email
-        date:
-          type: string
-          format: date-time
+        name:  { type: string }
+        email: { type: string, format: email }
+        date:  { type: string, format: date-time }

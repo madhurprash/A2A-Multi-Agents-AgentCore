@@ -32,6 +32,7 @@ import shutil
 import logging
 import base64
 import asyncio
+import argparse
 from datetime import datetime
 from dotenv import load_dotenv
 from typing import Dict, Any, Optional
@@ -899,12 +900,49 @@ Agents get tools directly from MCP servers - no custom tools added
 
 from agents import Agent, Runner, function_tool
 from agents.mcp import MCPServerStreamableHttp
+import requests
 
 # ────────────────────────────────────────────────────────────────────────────────────
 # SPECIALIST AGENTS USING MCP SERVERS DIRECTLY
 # ────────────────────────────────────────────────────────────────────────────────────
 
-def create_jira_agent(gateway_url: str, access_token: str, memory_tools: list):
+def list_tools_direct_api(gateway_url: str, access_token: str):
+    """
+    List tools from MCP gateway using direct JSON-RPC 2.0 API call
+    """
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {access_token}"
+    }
+    payload = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/list",
+        "params": {}
+    }
+    
+    try:
+        print(f"🔄 Making direct API call to list tools: {gateway_url}")
+        response = requests.post(gateway_url, headers=headers, json=payload, timeout=30)
+        response.raise_for_status()
+        result = response.json()
+        print(f"✅ Direct API response: {result}")
+        
+        # Extract tools from JSON-RPC response
+        if 'result' in result and 'tools' in result['result']:
+            return result['result']['tools']
+        else:
+            print(f"⚠️ Unexpected response format: {result}")
+            return []
+            
+    except requests.exceptions.RequestException as e:
+        print(f"❌ HTTP request failed: {e}")
+        return []
+    except Exception as e:
+        print(f"❌ Error parsing response: {e}")
+        return []
+
+async def create_jira_agent(gateway_url: str, access_token: str, memory_tools: list):
     """Create JIRA specialist agent that gets tools from MCP server"""
     
     # Create MCP server connection to the gateway
@@ -922,23 +960,48 @@ def create_jira_agent(gateway_url: str, access_token: str, memory_tools: list):
         cache_tools_list=True 
     )
     
-    # Disable OpenAI tracing to prevent span_data.result errors
-    import os
-    os.environ["OPENAI_ENABLE_TRACING"] = "false"
+    # Connect to the server first
+    await mcp_server.connect()
+    print(f"🔄 Connected to JIRA MCP server: {gateway_url}")
     
-    # Create agent with MCP server - it will automatically get all tools from the server
-    return Agent(
-        name="JIRA_Specialist",
-        instructions=JIRA_AGENT_PROMPT,  # Use your existing prompt
-        model="gpt-4o",
-        mcp_servers=[mcp_server],  # Agent gets tools from MCP server
-        tools=memory_tools  # Only add memory tools
-    )
+    try:
+        # List tools from the MCP server
+        print("🔄 Fetching JIRA tools from MCP server...")
+        # Disable OpenAI tracing to prevent span_data.result errors
+        os.environ["OPENAI_ENABLE_TRACING"] = "false"
+        
+        # Create agent with MCP server - it will automatically get all tools from the server
+        agent = Agent(
+            name="JIRA_Specialist",
+            instructions=JIRA_AGENT_PROMPT,  # Use your existing prompt
+            model="gpt-4o",
+            mcp_servers=[mcp_server],  # Agent gets tools from MCP server
+            tools=memory_tools  # Only add memory tools
+        )
+        # Use direct JSON-RPC API to list tools for debugging
+        tools = list_tools_direct_api(gateway_url, access_token)
+        if tools:
+            print(f"🔍 Available JIRA tools from MCP server:")
+            for i, tool in enumerate(tools, 1):
+                tool_name = tool.get('name', 'Unknown')
+                tool_desc = tool.get('description', 'No description')
+                print(f"   {i}. {tool_name}: {tool_desc}")
+        else:
+            print(f"⚠️ No tools returned from JIRA MCP server!")
+            
+        print(f"✅ JIRA Agent created with {len(tools)} MCP tools + {len(memory_tools)} memory tools")
+        return agent
+        
+    except Exception as e:
+        print(f"❌ Error creating JIRA agent: {e}")
+        await mcp_server.cleanup()
+        raise
 
-def create_github_agent(gateway_url: str, access_token: str, memory_tools: list):
+async def create_github_agent(gateway_url: str, access_token: str, memory_tools: list):
     """Create GitHub specialist agent that gets tools from MCP server"""
     
     # Create MCP server connection to the gateway  
+    print(f"🔄 Connecting to GitHub MCP server: {gateway_url}")
     mcp_server = MCPServerStreamableHttp(
         name="AgentCore_Gateway_GitHub",
         params={
@@ -951,20 +1014,37 @@ def create_github_agent(gateway_url: str, access_token: str, memory_tools: list)
         cache_tools_list=True  # Cache tools for performance
     )
     
-    # Disable OpenAI tracing to prevent span_data.result errors
-    import os
-    os.environ["OPENAI_ENABLE_TRACING"] = "false"
+    # Connect to the server first
+    await mcp_server.connect()
+    print(f"🔄 Connecting to GITHUB MCP server: {gateway_url}")
     
-    # Create agent with MCP server - it will automatically get all tools from the server
-    return Agent(
-        name="GitHub_Specialist",
-        instructions=GITHUB_AGENT_PROMPT,  # Use your existing prompt
-        model="gpt-4o", 
-        mcp_servers=[mcp_server],  # Agent gets tools from MCP server
-        tools=memory_tools  # Only add memory tools
-    )
+    try:
+        # List tools from the MCP server
+        print("🔄 Fetching GitHub tools from MCP server...")
+        
+        # Disable OpenAI tracing to prevent span_data.result errors
+        os.environ["OPENAI_ENABLE_TRACING"] = "false"
+        
+        # Create agent with MCP server - it will automatically get all tools from the server
+        agent = Agent(
+            name="GitHub_Specialist",
+            instructions=GITHUB_AGENT_PROMPT,  # Use your existing prompt
+            model="gpt-4o", 
+            mcp_servers=[mcp_server],  # Agent gets tools from MCP server
+            tools=memory_tools  # Only add memory tools
+        )
+        # Use direct JSON-RPC API to list tools instead of MCP library
+        tools = list_tools_direct_api(gateway_url, access_token)
+            
+        print(f"✅ GitHub Agent created with {len(tools)} MCP tools + {len(memory_tools)} memory tools")
+        return agent
+        
+    except Exception as e:
+        print(f"❌ Error creating GitHub agent: {e}")
+        await mcp_server.cleanup()
+        raise
 
-def create_lead_orchestrator_agent(jira_agent: Agent, github_agent: Agent, memory_tools: list):
+async def create_lead_orchestrator_agent(jira_agent: Agent, github_agent: Agent, memory_tools: list):
     """Create lead orchestrator agent with specialist agents as tools"""
     
     # Create delegation tools using the specialist agents
@@ -998,44 +1078,28 @@ def create_lead_orchestrator_agent(jira_agent: Agent, github_agent: Agent, memor
         except Exception as e:
             return f"❌ GitHub delegation error: {str(e)}"
     
-    # Alternative: Use the .as_tool() method for simpler delegation
-    jira_tool = jira_agent.as_tool(
-        tool_name="jira_specialist_agent",
-        tool_description="JIRA specialist agent for all ticket management, issue tracking, and project workflow tasks."
-    )
-    
-    github_tool = github_agent.as_tool(
-        tool_name="github_specialist_agent", 
-        tool_description="GitHub specialist agent for all code repository, issue tracking, and development workflow tasks."
-    )
-    
     # Disable OpenAI tracing to prevent span_data.result errors
-    import os
     os.environ["OPENAI_ENABLE_TRACING"] = "false"
     
     # Create the orchestrator agent
-    return Agent(
+    orchestrator = Agent(
         name="Ops_Orchestrator",
         instructions=OPS_ORCHESTRATOR_AGENT_SYSTEM_PROMPT,  # Use your existing prompt
         model="gpt-4o",
         tools=[
-            # Specialist agent delegation tools (choose one approach)
+            # Specialist agent delegation tools
             delegate_to_jira_specialist,
             delegate_to_github_specialist,
-            
-            # Alternative: Direct agent tools
-            # jira_tool,
-            # github_tool,
             
             # Memory tools for orchestrator
             *memory_tools
         ]
     )
+    
+    print(f"✅ Orchestrator Agent created with delegation tools + {len(memory_tools)} memory tools")
+    return orchestrator
 
-# ────────────────────────────────────────────────────────────────────────────────────
-# ORCHESTRATOR SYSTEM USING YOUR EXISTING SETUP
-# ────────────────────────────────────────────────────────────────────────────────────
-
+# Updated OpsOrchestratorSystem class with async initialization
 class OpsOrchestratorSystem:
     """Complete ops orchestrator system using OpenAI Agents SDK with MCP servers"""
     
@@ -1071,7 +1135,6 @@ class OpsOrchestratorSystem:
                 session_id=self.session_id
             )
         elif agent_type == 'ticket_agent':
-            # Use lead agent tools for ticket agent
             return create_memory_tools(
                 self.memories_data['ticket_agent']['id'],
                 openai_mem_client,  # Your existing memory client
@@ -1082,46 +1145,60 @@ class OpsOrchestratorSystem:
             return []
     
     async def initialize(self):
-        """Initialize all agents"""
+        """Initialize all agents with tool listing"""
+        
+        print("🚀 Initializing Ops Orchestrator System with MCP tool discovery...")
         
         # Get memory tools for each agent
         jira_memory_tools = self.get_existing_memory_tools('ticket_agent')
         github_memory_tools = self.get_existing_memory_tools('chat_ops_agent')
         orchestrator_memory_tools = self.get_existing_memory_tools('lead_agent')
         
+        print(f"📝 Memory tools prepared:")
+        print(f"   - JIRA agent: {len(jira_memory_tools)} memory tools")
+        print(f"   - GitHub agent: {len(github_memory_tools)} memory tools")
+        print(f"   - Orchestrator: {len(orchestrator_memory_tools)} memory tools")
+        
         # Create specialist agents with MCP server connections
-        self.jira_agent = create_jira_agent(
-            gateway_url=self.gateway_credentials['mcp_url'],
-            access_token=self.gateway_credentials['access_token'],
-            memory_tools=jira_memory_tools
-        )
-        
-        self.github_agent = create_github_agent(
-            gateway_url=self.gateway_credentials['mcp_url'],
-            access_token=self.gateway_credentials['access_token'],
-            memory_tools=github_memory_tools
-        )
-        
-        # Create orchestrator agent with specialist agents as tools
-        self.orchestrator_agent = create_lead_orchestrator_agent(
-            jira_agent=self.jira_agent,
-            github_agent=self.github_agent,
-            memory_tools=orchestrator_memory_tools
-        )
-        
-        print(f"✅ All agents initialized:")
-        print(f"   - JIRA Agent: Connected to MCP gateway")
-        print(f"   - GitHub Agent: Connected to MCP gateway")
-        print(f"   - Orchestrator Agent: Using specialist agents as tools")
+        try:
+            print("\n🔧 Creating JIRA specialist agent...")
+            self.jira_agent = await create_jira_agent(
+                gateway_url=self.gateway_credentials['mcp_url'],
+                access_token=self.gateway_credentials['access_token'],
+                memory_tools=jira_memory_tools
+            )
+            
+            print("\n🔧 Creating GitHub specialist agent...")
+            self.github_agent = await create_github_agent(
+                gateway_url=self.gateway_credentials['mcp_url'],
+                access_token=self.gateway_credentials['access_token'],
+                memory_tools=github_memory_tools
+            )
+            
+            print("\n🔧 Creating orchestrator agent...")
+            self.orchestrator_agent = await create_lead_orchestrator_agent(
+                jira_agent=self.jira_agent,
+                github_agent=self.github_agent,
+                memory_tools=orchestrator_memory_tools
+            )
+            
+            print(f"\n✅ All agents initialized successfully!")
+            print(f"   🎫 JIRA Agent: Connected to MCP gateway with tools")
+            print(f"   🐙 GitHub Agent: Connected to MCP gateway with tools")
+            print(f"   🎯 Orchestrator Agent: Using specialist agents as tools")
+            
+        except Exception as e:
+            print(f"❌ Error during agent initialization: {e}")
+            raise
     
     async def execute_orchestration(self, user_input: str) -> str:
         """Execute orchestration using the lead agent"""
         try:
             if not self.orchestrator_agent:
+                print("🔄 Agents not initialized, initializing now...")
                 await self.initialize()
             
             # Add error handling for tracing issues
-            import os
             os.environ.setdefault("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "")
             
             result = await Runner.run(
@@ -1142,327 +1219,224 @@ class OpsOrchestratorSystem:
                 return "Operation completed with tracing warnings"
             return f"❌ Error in ops orchestration: {error_msg}"
 
-# ────────────────────────────────────────────────────────────────────────────────────
-# INITIALIZE THE ORCHESTRATOR SYSTEM WITH YOUR EXISTING SETUP
-# ────────────────────────────────────────────────────────────────────────────────────
-
-print("🚀 Initializing OpenAI Agents SDK Orchestrator System with MCP servers...")
-
-# Create the orchestrator system using your existing components
-ops_orchestrator_system = OpsOrchestratorSystem(
-    gateway_credentials={
+# Usage example - replace your existing initialization
+async def initialize_ops_orchestrator_with_tool_listing():
+    """Initialize the ops orchestrator system with detailed tool listing"""
+    
+    # Your existing gateway credentials
+    gateway_credentials = {
         'mcp_url': mcp_url,
         'access_token': access_token,
         'gateway_id': gateway_id
-    },
-    memories_data=memories_data,  # Your existing memory data
-    observability_instance=_observability_instance  # Your existing observability
-)
+    }
+    
+    # Create the orchestrator system
+    ops_system = OpsOrchestratorSystem(
+        gateway_credentials=gateway_credentials,
+        memories_data=memories_data,  # Your existing memory data
+        observability_instance=_observability_instance  # Your existing observability
+    )
+    
+    # Initialize with tool listing
+    await ops_system.initialize()
+    
+    return ops_system
 
-print(f"✅ Ops Orchestrator System initialized with:")
-print(f"   - Gateway URL: {mcp_url}")
-print(f"   - Memories: {list(memories_data.keys())}")
-print(f"   - Actor ID: {ops_orchestrator_system.actor_id}")
-print(f"   - Session ID: {ops_orchestrator_system.session_id}")
+# Test function to verify tools are working
+async def test_tool_listing():
+    """Test the tool listing functionality"""
+    
+    print("🧪 Testing MCP tool listing...")
+    
+    # Initialize the system
+    ops_system = await initialize_ops_orchestrator_with_tool_listing()
+    
+    # Test queries
+    test_queries = [
+        "What JIRA tools are available to me?",
+        "What GitHub operations can I perform?",
+        "List all the tools available across both systems"
+    ]
+    
+    for query in test_queries:
+        print(f"\n🎯 Testing: {query}")
+        try:
+            result = await ops_system.execute_orchestration(query)
+            print(f"✅ Result: {result}")
+        except Exception as e:
+            print(f"❌ Error: {e}")
+        print("-" * 50)
+
+async def interactive_cli():
+    """Interactive CLI for the ops orchestrator agent"""
+    print("🚀 Initializing Ops Orchestrator Agent...")
+    print("Please wait while the system initializes...")
+    
+    # Initialize the ops orchestrator system
+    try:
+        ops_system = await initialize_ops_orchestrator_with_tool_listing()
+        print("✅ Ops Orchestrator Agent ready!")
+    except Exception as e:
+        print(f"❌ Failed to initialize agent: {e}")
+        return
+    
+    print("\n" + "="*60)
+    print("🎯 Welcome to the Ops Orchestrator Interactive CLI")
+    print("="*60)
+    print("Commands:")
+    print("  help    - Show this help message")
+    print("  exit    - Exit the program")
+    print("  quit    - Exit the program")
+    print("  clear   - Clear the screen")
+    print("\nType your ops-related questions or tasks below.")
+    print("The agent can help with AWS operations, JIRA tickets, GitHub management, and more.")
+    print("="*60 + "\n")
+    
+    while True:
+        try:
+            # Get user input
+            user_input = input("🎯 OpsAgent> ").strip()
+            
+            # Handle empty input
+            if not user_input:
+                continue
+                
+            # Handle special commands
+            if user_input.lower() in ['exit', 'quit']:
+                print("👋 Goodbye!")
+                break
+            elif user_input.lower() == 'help':
+                print("\n📚 Help:")
+                print("  - Ask questions about AWS operations")
+                print("  - Request JIRA ticket creation or management")
+                print("  - Get help with GitHub repository management")
+                print("  - Request incident analysis and triaging")
+                print("  - Ask for system monitoring insights")
+                print("\nExamples:")
+                print("  'Create a JIRA ticket for database performance issue'")
+                print("  'Check the status of my GitHub repositories'")
+                print("  'Help me analyze recent AWS CloudWatch alarms'")
+                print("  'What tools are available for GitHub operations?'")
+                continue
+            elif user_input.lower() == 'clear':
+                os.system('clear' if os.name == 'posix' else 'cls')
+                continue
+            
+            # Process the user input through the agent
+            print("🔄 Processing your request...")
+            try:
+                result = await ops_system.execute_orchestration(user_input)
+                print(f"\n📋 Result:\n{result}\n")
+            except Exception as e:
+                print(f"❌ Error processing request: {e}\n")
+                
+        except KeyboardInterrupt:
+            print("\n\n👋 Interrupted by user. Goodbye!")
+            break
+        except EOFError:
+            print("\n\n👋 End of input. Goodbye!")
+            break
+        except Exception as e:
+            print(f"❌ Unexpected error: {e}")
+
+def parse_arguments():
+    """Parse command line arguments"""
+    parser = argparse.ArgumentParser(
+        description="Ops Orchestrator Multi-Agent System",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="🎯 Ops Orchestrator Multi-Agent System 🎯\n\n"
+        "This agent helps with:\n"
+        "  • AWS operations and monitoring\n"
+        "  • JIRA ticket management\n" 
+        "  • GitHub repository operations\n"
+        "  • Incident response and triaging\n"
+        "  • Automated reporting\n\n"
+        "Usage examples:\n"
+        "  python ops_orchestrator_multi_agent.py --interactive\n"
+        "  python ops_orchestrator_multi_agent.py --test\n"
+        "  python ops_orchestrator_multi_agent.py --query 'Create a JIRA ticket'"
+    )
+    
+    parser.add_argument(
+        '--interactive', '-i',
+        action='store_true',
+        help='Start the interactive CLI mode'
+    )
+    
+    parser.add_argument(
+        '--test', '-t',
+        action='store_true', 
+        help='Run the tool listing test'
+    )
+    
+    parser.add_argument(
+        '--query', '-q',
+        type=str,
+        help='Execute a single query and exit'
+    )
+    
+    return parser.parse_args()
+
+async def main():
+    """Main entry point"""
+    args = parse_arguments()
+    
+    if args.interactive:
+        await interactive_cli()
+    elif args.test:
+        await test_tool_listing()
+    elif args.query:
+        print("🚀 Initializing Ops Orchestrator Agent...")
+        try:
+            ops_system = await initialize_ops_orchestrator_with_tool_listing()
+            print(f"🔄 Processing query: {args.query}")
+            result = await ops_system.execute_orchestration(args.query)
+            print(f"\n📋 Result:\n{result}")
+        except Exception as e:
+            print(f"❌ Error: {e}")
+    else:
+        # Default to interactive mode if no arguments provided
+        print("No arguments provided. Starting in interactive mode...")
+        await interactive_cli()
 
 # ────────────────────────────────────────────────────────────────────────────────────
-# AGENTCORE APP ENTRYPOINT
+# ENTRYPOINT FUNCTION FOR BEDROCK AGENTCORE INVOCATION
 # ────────────────────────────────────────────────────────────────────────────────────
 
+# Import only what's needed for the AgentCore app entrypoint
 from bedrock_agentcore.runtime import BedrockAgentCoreApp
 
+# Create app instance for entrypoint decorator
 app = BedrockAgentCoreApp()
 
 @app.entrypoint
 async def invoke(payload):
-    """AgentCore entrypoint for the ops orchestrator system"""
-    user_message = payload.get("prompt", "Help me with AWS operations and incident management.")
-    print(f"🎯 Invoking ops orchestrator with: {user_message}")
+    '''
+    This is the entrypoint function to invoke the top-level ops orchestrator agent.
+    This agent coordinates between specialized JIRA and GitHub agents via OpenAI Agents SDK,
+    and can be invoked both locally and via agent ARN using boto3 bedrock-agentcore client.
+    '''
+    user_message = payload.get("prompt", "You are an ops orchestrator agent to help with AWS operations, issue triaging, and incident management.")
+    print(f"🎯 Invoking ops orchestrator agent with prompt: {user_message}")
     
     try:
-        result = await ops_orchestrator_system.execute_orchestration(user_message)
+        # Initialize the ops orchestrator system if not already done
+        ops_system = await initialize_ops_orchestrator_with_tool_listing()
+        
+        # Execute the orchestration using OpenAI Agents SDK
+        result = await ops_system.execute_orchestration(user_message)
+        
+        print(f"✅ Ops orchestrator agent execution completed")
         return result
+        
     except Exception as e:
-        error_msg = f"❌ Error in ops orchestrator: {str(e)}"
+        error_msg = f"❌ Error in ops orchestrator agent execution: {str(e)}"
         print(error_msg)
         return error_msg
 
-# ────────────────────────────────────────────────────────────────────────────────────
-# TESTING FUNCTIONS
-# ────────────────────────────────────────────────────────────────────────────────────
-
-async def test_orchestrator_system():
-    """Test the orchestrator system with sample scenarios"""
-    
-    test_scenarios = [
-        "Create a high-priority JIRA ticket for the API gateway timeout errors we've been seeing in production.",
-        "Generate a GitHub issue for the memory leak in our Lambda function and create a gist with debugging steps.",
-        "I need to track this production incident - create tickets in both JIRA and GitHub with proper cross-references.",
-        "Review our recent CloudWatch alarms and create appropriate tracking tickets for any critical issues."
-    ]
-    
-    print("🧪 Testing Ops Orchestrator System...")
-    
-    for i, scenario in enumerate(test_scenarios, 1):
-        print(f"\n{'='*80}")
-        print(f"🎯 Test Scenario {i}: {scenario}")
-        print(f"{'='*80}")
-        
-        try:
-            result = await ops_orchestrator_system.execute_orchestration(scenario)
-            print(f"✅ Result: {result}")
-        except Exception as e:
-            print(f"❌ Error: {e}")
-        
-        await asyncio.sleep(2)
-
-def run_local_test():
-    """Run local test of the orchestrator system"""
-    import asyncio
-    asyncio.run(test_orchestrator_system())
-
-# ────────────────────────────────────────────────────────────────────────────────────
-# USAGE INSTRUCTIONS
-# ────────────────────────────────────────────────────────────────────────────────────
-
-print("""
-🎉 OpenAI Agents SDK Ops Orchestrator Setup Complete!
-
-📋 KEY FEATURES:
-   ✅ JIRA Agent: Gets tools directly from MCP gateway
-   ✅ GitHub Agent: Gets tools directly from MCP gateway  
-   ✅ Lead Orchestrator: Uses specialist agents as tools
-   ✅ No custom tools - only MCP server tools + existing memory tools
-   ✅ Proper authentication with AgentCore Gateway
-   ✅ Integrated with your existing memory and observability setup
-
-🔧 USAGE:
-   1. For AgentCore Runtime: app.run()
-   2. For Local Testing: run_local_test()
-   3. For Direct Usage: await ops_orchestrator_system.execute_orchestration("your task")
-
-🚀 Ready to orchestrate operations with MCP tools!
-""")
-
-async def interactive_cli():
-    """Interactive CLI for the Ops Orchestrator System"""
-    print("\n🚀 Ops Orchestrator Interactive CLI")
-    print("=" * 50)
-    print("Available commands:")
-    print("  - Type your request to orchestrate operations")
-    print("  - Type 'quit' or 'exit' to quit")
-    print("  - Type 'test' to run predefined test scenarios")
-    print("  - Type 'help' for this message")
-    print("=" * 50)
-    
-    # Initialize the system once
-    await ops_orchestrator_system.initialize()
-    
-    while True:
-        try:
-            user_input = input("\n🎯 Enter your request: ").strip()
-            
-            if not user_input:
-                continue
-                
-            if user_input.lower() in ['quit', 'exit']:
-                print("👋 Goodbye!")
-                break
-                
-            if user_input.lower() == 'help':
-                print("\n📋 Available commands:")
-                print("  - Type your request to orchestrate operations")
-                print("  - Type 'quit' or 'exit' to quit")
-                print("  - Type 'test' to run predefined test scenarios")
-                print("  - Type 'help' for this message")
-                continue
-                
-            if user_input.lower() == 'test':
-                await test_orchestrator_system()
-                continue
-            
-            print(f"\n🔄 Processing: {user_input}")
-            print("-" * 50)
-            
-            # Execute the orchestration
-            result = await ops_orchestrator_system.execute_orchestration(user_input)
-            
-            print(f"\n✅ Result:")
-            print(result)
-            print("-" * 50)
-            
-        except KeyboardInterrupt:
-            print("\n\n👋 Interrupted by user. Goodbye!")
-            break
-        except Exception as e:
-            print(f"\n❌ Error: {e}")
-            continue
-
-def main():
-    """Main function to choose between interactive CLI, testing, or AgentCore runtime"""
-    import sys
-    
-    if len(sys.argv) > 1:
-        command = sys.argv[1].lower()
-        
-        if command == 'test':
-            print("🧪 Running test scenarios...")
-            run_local_test()
-        elif command == 'runtime':
-            print("🚀 Starting AgentCore runtime...")
-            app.run()
-        elif command == 'interactive':
-            print("🖥️  Starting interactive CLI...")
-            asyncio.run(interactive_cli())
-        else:
-            print(f"❌ Unknown command: {command}")
-            print("Available commands: interactive, test, runtime")
-    else:
-        # Default to interactive mode
-        print("🖥️  Starting interactive CLI (default mode)...")
-        asyncio.run(interactive_cli())
-
 if __name__ == "__main__":
-    main()
-
-
-# # Create a bedrock model using the BedrockModel interface
-# ops_agent_info: str = config_data['agent_information']['ops_orchestrator_agent_model_info']
-# bedrock_model = BedrockModel(
-#     model_id=ops_agent_info.get('model_id'),
-#     region_name=REGION_NAME,
-#     temperature=ops_agent_info['inference_parameters'].get('temperature'),
-#     max_tokens=ops_agent_info['inference_parameters'].get('max_tokens')
-# )
-# print(f"Initialized the bedrock model for the ops orchestrator agent: {bedrock_model}")
-
-# # Import only what's needed for the AgentCore app entrypoint
-# from bedrock_agentcore.runtime import BedrockAgentCoreApp
-
-# # Create app instance for entrypoint decorator
-# app = BedrockAgentCoreApp()
-
-# # Create MCP client and agent at module level for reuse
-# from strands.tools.mcp.mcp_client import MCPClient
-# from mcp.client.streamable_http import streamablehttp_client 
-
-# def create_streamable_http_transport():
-#     """
-#     This is the client to return a streamablehttp access token
-#     """
-#     try:
-#         # Read credentials from file to get current token
-#         with open(OPS_ORCHESTRATOR_GATEWAY_CREDENTIALS_PATH, 'r') as cred_file:
-#             json_credentials = json.load(cred_file)
-#             current_access_token = json_credentials['access_token']
-#             current_mcp_url = json_credentials['mcp_url']
-        
-#         response = streamablehttp_client(current_mcp_url, headers={"Authorization": f"Bearer {current_access_token}"})
-#         return response
-#     except Exception as e:
-#         logger.error(f"An error occurred while connecting to the MCP server: {e}")
-#         raise e
-
-# # Initialize MCP client
-# print(f"Going to start the MCP session...")
-
-# # Debug: Test if we can read credentials
-# try:
-#     with open(OPS_ORCHESTRATOR_GATEWAY_CREDENTIALS_PATH, 'r') as debug_file:
-#         debug_creds = json.load(debug_file)
-#         print(f"DEBUG: Credentials available: URL={debug_creds.get('mcp_url')}, Token={debug_creds.get('access_token')[:20]}...")
-# except Exception as e:
-#     print(f"DEBUG: Error reading credentials: {e}")
-
-# mcp_client = MCPClient(create_streamable_http_transport)
-# print(f"Started the MCP session client...")
-
-# # Create memory tools for the OpenAI agents
-# print("Creating memory tools for OpenAI agents...")
-
-# # Create memory tools for all agents with their respective memory IDs
-# all_memory_tools = []
-
-# # Memory tools for lead agent (issue triaging)
-# if memories_data.get('lead_agent'):
-#     # generate a unique session ID
-#     lead_session_id = str(uuid.uuid4())
-#     lead_agent_memory_tools = create_lead_agent_memory_tools(
-#         memories_data['lead_agent']['id'],
-#         openai_mem_client, 
-#         actor_id=(
-#             _observability_instance.get_actor_id()
-#             if _observability_instance
-#             else f'lead_actor_{int(time.time())}'
-#         ),
-#         session_id=lead_session_id
-#     )
-#     all_memory_tools.extend(lead_agent_memory_tools)
-#     print(f"✅ Created {len(lead_agent_memory_tools)} memory tools for lead agent (session {lead_session_id})")
-
-# # Memory tools for chat‑ops agent
-# if memories_data.get('chat_ops_agent'):
-#     # generate a unique session ID
-#     chatops_session_id = str(uuid.uuid4())
-#     chatops_memory_tools = create_chatops_agent_memory_tools(
-#         memories_data['chat_ops_agent']['id'], 
-#         openai_mem_client,
-#         actor_id=(
-#             _observability_instance.get_actor_id()
-#             if _observability_instance
-#             else f'chatops_actor_{int(time.time())}'
-#         ),
-#         session_id=chatops_session_id
-#     )
-#     all_memory_tools.extend(chatops_memory_tools)
-#     print(f"✅ Created {len(chatops_memory_tools)} memory tools for chat‑ops agent (session {chatops_session_id})")
-
-# def invoke_agent_with_mcp_session(user_message):
-#     """
-#     Invoke the agent within an MCP client session context.
-#     This ensures the MCP client is properly initialized before agent execution.
-#     """
-#     # Initialize gateway tools
-#     print(f"Going to list tools from the MCP client")
-#     try:
-#         with mcp_client:
-#             gateway_tools = mcp_client.list_tools_sync()
-#             print(f"Loaded {len(gateway_tools)} tools from Gateway...")
-#             # Create agent with Gateway MCP tools + memory hooks + observability hooks
-#             hooks = []
-#             if observability_hooks:
-#                 hooks.append(observability_hooks)
-
-#             # Combine all memory tools with gateway tools
-#             all_tools = gateway_tools + all_memory_tools
-
-#             # Initialize agent at module level
-#             agent = Agent(
-#                 system_prompt=OPS_ORCHESTRATOR_AGENT_SYSTEM_PROMPT,
-#                 model=bedrock_model,
-#                 hooks=hooks,
-#                 tools=all_tools
-#             )
-#             response = agent(user_message)
-#             return response.message['content'][0]['text']
-#     except Exception as tools_error:
-#         print(f"❌ Error listing tools from Gateway MCP server: {tools_error}")
-#         raise
-
-# print(f"✅ Created ops orchestrator agent with Gateway MCP tools and memory tools!")
-
-# @app.entrypoint
-# def invoke(payload):
-#     '''
-#     This is the entrypoint function to invoke the ops orchestrator agent.
-#     This agent is created with tools from the MCP Gateway and can be
-#     invoked both locally and via agent ARN using boto3 bedrock-agentcore client.
-#     '''
-#     user_message = payload.get("prompt", "You are an ops orchestrator agent to help with AWS operations, issue triaging, and incident management.")
-#     print(f"Going to invoke the agent with the following prompt: {user_message}")
-    
-#     # Process the user input through the agent within MCP session
-#     return invoke_agent_with_mcp_session(user_message)
-
-# if __name__ == "__main__":
-#     app.run()
+    # Support both interactive CLI and AgentCore runtime
+    if len(sys.argv) > 1 and sys.argv[1] == '--agentcore':
+        app.run()
+    else:
+        asyncio.run(main())

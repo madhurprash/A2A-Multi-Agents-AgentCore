@@ -1,5 +1,5 @@
 """
-AgentCore Runtime Configuration and Launch Module
+AgentCore Runtime Configuration and Launch Module for Ops Orchestrator Agent
 
 This module handles the AgentCore Runtime setup separately from the main ops orchestrator agent.
 Use this when you want to deploy the ops orchestrator agent as a containerized AgentCore runtime.
@@ -27,8 +27,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-class AgentCoreRuntimeManager:
-    """Manages AgentCore Runtime configuration and deployment"""
+class OpsOrchestratorRuntimeManager:
+    """Manages AgentCore Runtime configuration and deployment for Ops Orchestrator Agent"""
     
     def __init__(self, config_file='config.yaml'):
         """Initialize with configuration"""
@@ -37,17 +37,17 @@ class AgentCoreRuntimeManager:
         self.region = REGION_NAME
         self.fresh_access_token = None  # Store fresh token in memory
         
-        # Extract runtime configuration
+        # Extract runtime configuration for ops orchestrator agent
         gateway_config = self.config_data.get('agent_information', {}).get(
-            'monitoring_agent_model_info', {}
+            'ops_orchestrator_agent_model_info', {}
         ).get('gateway_config', {})
         
         self.runtime_exec_role = gateway_config.get('runtime_exec_role')
         self.launch_agentcore_runtime = gateway_config.get('launch_agentcore_runtime', False)
         self.agent_arn = gateway_config.get('agent_arn')
         
-        # Import and use the refresh_access_token function from monitoring_agent
-        from monitoring_agent import refresh_access_token
+        # Import and use the refresh_access_token function from ops_orchestrator_multi_agent
+        from ops_orchestrator_multi_agent import refresh_access_token
         self.fresh_access_token = refresh_access_token()
         
         logger.info(f"Runtime execution role: {self.runtime_exec_role}")
@@ -82,7 +82,7 @@ class AgentCoreRuntimeManager:
             
             logger.info("🔧 Configuring AgentCore Runtime...")
             configure_response = self.agentcore_runtime.configure(
-                entrypoint="monitoring_agent.py",
+                entrypoint="ops_orchestrator_multi_agent.py",
                 execution_role=self.runtime_exec_role,
                 auto_create_ecr=True,
                 requirements_file="requirements.txt",
@@ -287,7 +287,7 @@ def main():
     """Main function for standalone runtime management"""
     import argparse
     
-    parser = argparse.ArgumentParser(description='AgentCore Runtime Manager')
+    parser = argparse.ArgumentParser(description='Ops Orchestrator AgentCore Runtime Manager')
     parser.add_argument('--configure', action='store_true', help='Configure runtime')
     parser.add_argument('--launch', action='store_true', help='Launch runtime')
     parser.add_argument('--status', action='store_true', help='Get runtime status')
@@ -295,7 +295,7 @@ def main():
     
     args = parser.parse_args()
     
-    runtime_manager = AgentCoreRuntimeManager(args.config)
+    runtime_manager = OpsOrchestratorRuntimeManager(args.config)
     
     if args.configure:
         success = runtime_manager.configure_runtime()

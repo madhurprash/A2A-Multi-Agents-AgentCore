@@ -51,7 +51,7 @@ agent_information:
     # Gateway configuration for the monitoring agent
     # Gateway configuration with Keycloak
     gateway_config:
-      name: "ops-gw"
+      name: "ops-gtwnew"
       # Cognito authentication configuration
       inbound_auth:
         type: "cognito"
@@ -125,15 +125,15 @@ agent_information:
       # as endpoints to call through the tool gateway primitive
       # These can be json files for now are supported, can be lambda functions as well
       # This represents the target type for the gateway
-      existing_target: true
-      target_name: OpsTarget
+      existing_target: false
+      target_name: null
       target_type: openapi
       # IAM Role Configuration
       # this is the IAM role that will be attached to this gateway
       iam_role:
         execution_role_arn: "arn:aws:iam::ACCOUNT_ID:role/GenesisGatewayExecutionRole"
       # This is if the agent is already configured and needs to be invokeds
-      agent_arn: 
+      agent_arn:
       # set this to false if the agent arn is provided from above
       launch_agentcore_runtime: true
       # this is the runtime execution role for the agent that will be used 

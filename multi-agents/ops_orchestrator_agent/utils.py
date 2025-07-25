@@ -1260,7 +1260,7 @@ def setup_github_oauth2_provider() -> str:
         "response_types": ["code"]
     }
     
-    return create_oauth2_credential_provider("GitHubnew", auth_config)
+    return create_oauth2_credential_provider("Gthb", auth_config)
 
 def setup_jira_oauth2_provider() -> str:
     """
@@ -1296,7 +1296,7 @@ def setup_jira_oauth2_provider() -> str:
         "response_types": ["code"]
     }
     
-    return create_oauth2_credential_provider("Jiranew", auth_config)
+    return create_oauth2_credential_provider("Jiramcp", auth_config)
 
 def create_openapi_targets_with_oauth(gateway_id: str, bucket_name: str) -> List[Dict]:
     """
