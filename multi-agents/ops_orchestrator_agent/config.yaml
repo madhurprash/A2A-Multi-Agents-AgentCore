@@ -51,7 +51,7 @@ agent_information:
     # Gateway configuration for the monitoring agent
     # Gateway configuration with Keycloak
     gateway_config:
-      name: "ops-gtwnew"
+      name: "ops-gtwnewone"
       # Cognito authentication configuration
       inbound_auth:
         type: "cognito"
@@ -69,10 +69,24 @@ agent_information:
       credentials:
         use_cognito: true        # must be a YAML boolean
         use_existing: false
-        create_new_access_token: false
+        create_new_access_token: true
         gateway_id: null
         mcp_url: null
         access_token: null
+      
+      # MCP Connection Configuration for long-lived agents
+      connection_config:
+        # Timeout settings for MCP connections (in seconds)
+        timeout: 60.0              # General timeout for MCP operations
+        connect_timeout: 30.0      # Timeout for initial connection
+        read_timeout: 120.0        # Timeout for reading responses
+        # Retry configuration
+        max_retries: 3             # Number of connection retries
+        retry_delay: 2             # Initial delay between retries (seconds)
+        exponential_backoff: true  # Use exponential backoff for retries
+        # Health check configuration
+        health_check_interval: 300 # Health check interval (5 minutes)
+        max_execution_retries: 2   # Max retries for agent execution
       
       # Gateway targets configuration
       existing_target: false

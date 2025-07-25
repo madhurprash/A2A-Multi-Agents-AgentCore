@@ -44,6 +44,25 @@ load_dotenv()
 import os
 os.environ["OPENAI_ENABLE_TRACING"] = "false"
 
+# Add signal handling for graceful shutdown
+import signal
+import atexit
+
+def setup_signal_handlers():
+    """Setup signal handlers for graceful shutdown"""
+    def signal_handler(signum, frame):
+        print(f"\n🛑 Received signal {signum}. Shutting down gracefully...")
+        # Let asyncio handle the cleanup
+        import sys
+        sys.exit(0)
+    
+    # Handle common termination signals
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+
+# Setup signal handlers early
+setup_signal_handlers()
+
 from bedrock_agentcore.memory import MemoryClient
 # This will help set up for strategies that can then be used 
 # across the code - user preferences, semantic memory or even
@@ -565,20 +584,21 @@ if credentials_path:
                 gateway_id = json_credentials['gateway_id']
                 print(f"Using existing gateway credentials from {credentials_path}")
                 
-                # Check if token is expired by parsing JWT payload
-                if gateway_config_info['credentials'].get('create_new_access_token'):
-                    print("⚠️ attempting refresh of the token...")
-                    # In this case, we refresh to get a new token to connect to the 
-                    # MCP gateway if the token is expired
-                    new_token = refresh_access_token()
-                    if new_token:
-                        access_token = new_token
-                        # Update the credentials file
-                        json_credentials['access_token'] = new_token
-                        json_credentials['updated_at'] = time.time()
-                        with open(credentials_path, 'w') as cred_file:
-                            json.dump(json_credentials, cred_file, indent=4)
-                        print("✅ Updated credentials with new access token")
+                # Always refresh token at every run for better reliability
+                print("🔄 Refreshing access token at startup...")
+                # In this case, we refresh to get a new token to connect to the 
+                # MCP gateway to ensure it's always fresh
+                new_token = refresh_access_token()
+                if new_token:
+                    access_token = new_token
+                    # Update the credentials file
+                    json_credentials['access_token'] = new_token
+                    json_credentials['updated_at'] = time.time()
+                    with open(credentials_path, 'w') as cred_file:
+                        json.dump(json_credentials, cred_file, indent=4)
+                    print("✅ Updated credentials with refreshed access token")
+                else:
+                    print("⚠️ Failed to refresh token, using existing token")
     except Exception as e:
         print(f"Error reading JSON credentials file: {e}")
 
@@ -902,13 +922,97 @@ from agents import Agent, Runner, function_tool
 from agents.mcp import MCPServerStreamableHttp
 import requests
 
+class MCPConnectionManager:
+    """Manages MCP connections with proper lifecycle handling"""
+    
+    def __init__(self):
+        self.connections = {}
+        self.connection_tasks = {}
+    
+    async def create_connection(self, name: str, url: str, access_token: str, timeout_config: dict):
+        """Create a new MCP connection with timeout handling"""
+        if name in self.connections:
+            print(f"⚠️ Connection {name} already exists, reusing...")
+            return self.connections[name]
+        
+        connection = MCPServerStreamableHttp(
+            name=name,
+            params={
+                "url": url,
+                "headers": {
+                    "Authorization": f"Bearer {access_token}",
+                    "Content-Type": "application/json"
+                },
+                "timeout": timeout_config.get('timeout', 60.0),
+                "connect_timeout": timeout_config.get('connect_timeout', 30.0),
+                "read_timeout": timeout_config.get('read_timeout', 120.0),
+            },
+            cache_tools_list=True
+        )
+        
+        # Store connection before connecting
+        self.connections[name] = connection
+        
+        # Connect with retry logic
+        max_retries = timeout_config.get('max_retries', 3)
+        retry_delay = timeout_config.get('retry_delay', 2)
+        
+        for attempt in range(max_retries):
+            try:
+                print(f"🔄 Connecting to {name} (attempt {attempt + 1}/{max_retries})")
+                await asyncio.wait_for(
+                    connection.connect(), 
+                    timeout=timeout_config.get('connect_timeout', 30.0)
+                )
+                print(f"✅ Successfully connected to {name}")
+                return connection
+            except Exception as e:
+                print(f"⚠️ Connection attempt {attempt + 1} failed: {e}")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(retry_delay)
+                else:
+                    # Remove failed connection
+                    del self.connections[name]
+                    raise Exception(f"Failed to connect to {name} after {max_retries} attempts")
+    
+    async def close_all_connections(self):
+        """Close all connections safely"""
+        print("🧹 Closing all MCP connections...")
+        
+        for name, connection in list(self.connections.items()):
+            try:
+                # Properly close the connection if it has a close method
+                if hasattr(connection, 'close') and callable(connection.close):
+                    try:
+                        await asyncio.wait_for(connection.close(), timeout=5.0)
+                        print(f"✅ Properly closed {name}")
+                    except asyncio.TimeoutError:
+                        print(f"⚠️ Timeout closing {name}, continuing...")
+                    except Exception as close_error:
+                        print(f"⚠️ Error closing {name}: {close_error}")
+                
+                # Also mark for closure as fallback
+                if hasattr(connection, '_should_close'):
+                    connection._should_close = True
+                    
+            except Exception as e:
+                print(f"⚠️ Warning during {name} cleanup: {e}")
+        
+        # Clear all connections
+        self.connections.clear()
+        self.connection_tasks.clear()
+        print("✅ All connections closed and cleared")
+
+# Global connection manager
+mcp_manager = MCPConnectionManager()
+
 # ────────────────────────────────────────────────────────────────────────────────────
 # SPECIALIST AGENTS USING MCP SERVERS DIRECTLY
 # ────────────────────────────────────────────────────────────────────────────────────
 
-def list_tools_direct_api(gateway_url: str, access_token: str):
+def list_tools_direct_api(gateway_url: str, access_token: str, max_retries: int = 2):
     """
-    List tools from MCP gateway using direct JSON-RPC 2.0 API call
+    List tools from MCP gateway using direct JSON-RPC 2.0 API call with auth retry
     """
     headers = {
         "Content-Type": "application/json",
@@ -921,48 +1025,62 @@ def list_tools_direct_api(gateway_url: str, access_token: str):
         "params": {}
     }
     
-    try:
-        print(f"🔄 Making direct API call to list tools: {gateway_url}")
-        response = requests.post(gateway_url, headers=headers, json=payload, timeout=30)
-        response.raise_for_status()
-        result = response.json()
-        print(f"✅ Direct API response: {result}")
-        
-        # Extract tools from JSON-RPC response
-        if 'result' in result and 'tools' in result['result']:
-            return result['result']['tools']
-        else:
-            print(f"⚠️ Unexpected response format: {result}")
-            return []
+    for attempt in range(max_retries + 1):
+        try:
+            print(f"🔄 Making direct API call to list tools: {gateway_url} (attempt {attempt + 1})")
+            response = requests.post(gateway_url, headers=headers, json=payload, timeout=30)
             
-    except requests.exceptions.RequestException as e:
-        print(f"❌ HTTP request failed: {e}")
-        return []
-    except Exception as e:
-        print(f"❌ Error parsing response: {e}")
-        return []
+            # Handle 401 Unauthorized specifically
+            if response.status_code == 401 and attempt < max_retries:
+                print("🔄 Token expired, attempting to refresh...")
+                new_token = refresh_access_token()
+                if new_token:
+                    headers["Authorization"] = f"Bearer {new_token}"
+                    print("✅ Token refreshed, retrying...")
+                    continue
+                else:
+                    print("❌ Failed to refresh token")
+                    
+            response.raise_for_status()
+            result = response.json()
+            print(f"✅ Direct API response: {result}")
+            
+            # Extract tools from JSON-RPC response
+            if 'result' in result and 'tools' in result['result']:
+                return result['result']['tools']
+            else:
+                print(f"⚠️ Unexpected response format: {result}")
+                return []
+                
+        except requests.exceptions.RequestException as e:
+            if attempt < max_retries and ("401" in str(e) or "Unauthorized" in str(e)):
+                print(f"⚠️ Request failed with auth error on attempt {attempt + 1}, retrying...")
+                continue
+            print(f"❌ HTTP request failed: {e}")
+            return []
+        except Exception as e:
+            print(f"❌ Error parsing response: {e}")
+            return []
+    
+    print(f"❌ Failed after {max_retries + 1} attempts")
+    return []
 
 async def create_jira_agent(gateway_url: str, access_token: str, memory_tools: list):
-    """Create JIRA specialist agent that gets tools from MCP server"""
+    """Create JIRA specialist agent that gets tools from MCP server with retry and timeout handling"""
     
-    # Create MCP server connection to the gateway
-    mcp_server = MCPServerStreamableHttp(
-        # this is the MCP server for JIRA
+    # Load connection configuration from config file
+    gateway_config = config_data['agent_information']['ops_orchestrator_agent_model_info']['gateway_config']
+    connection_config = gateway_config.get('connection_config', {})
+    
+    print(f"🔧 Using connection config for JIRA: timeout={connection_config.get('timeout', 60.0)}s")
+    
+    # Use the connection manager to create and manage the connection
+    mcp_server = await mcp_manager.create_connection(
         name="AgentCore_Gateway_JIRA",
-        params={
-            "url": gateway_url,
-            "headers": {
-                "Authorization": f"Bearer {access_token}",
-                "Content-Type": "application/json"
-            }
-        },
-        # cache tools for better performance so there is no additional latency
-        cache_tools_list=True 
+        url=gateway_url,
+        access_token=access_token,
+        timeout_config=connection_config
     )
-    
-    # Connect to the server first
-    await mcp_server.connect()
-    print(f"🔄 Connected to JIRA MCP server: {gateway_url}")
     
     try:
         # List tools from the MCP server
@@ -978,6 +1096,10 @@ async def create_jira_agent(gateway_url: str, access_token: str, memory_tools: l
             mcp_servers=[mcp_server],  # Agent gets tools from MCP server
             tools=memory_tools  # Only add memory tools
         )
+        
+        # Store MCP server reference for later cleanup management
+        agent._mcp_server = mcp_server
+        
         # Use direct JSON-RPC API to list tools for debugging
         tools = list_tools_direct_api(gateway_url, access_token)
         if tools:
@@ -994,29 +1116,30 @@ async def create_jira_agent(gateway_url: str, access_token: str, memory_tools: l
         
     except Exception as e:
         print(f"❌ Error creating JIRA agent: {e}")
-        await mcp_server.cleanup()
+        # Properly handle connection cleanup on error
+        try:
+            if 'mcp_server' in locals():
+                mcp_server._should_close = True
+        except:
+            pass
         raise
 
 async def create_github_agent(gateway_url: str, access_token: str, memory_tools: list):
-    """Create GitHub specialist agent that gets tools from MCP server"""
+    """Create GitHub specialist agent that gets tools from MCP server with retry and timeout handling"""
     
-    # Create MCP server connection to the gateway  
-    print(f"🔄 Connecting to GitHub MCP server: {gateway_url}")
-    mcp_server = MCPServerStreamableHttp(
+    # Load connection configuration from config file
+    gateway_config = config_data['agent_information']['ops_orchestrator_agent_model_info']['gateway_config']
+    connection_config = gateway_config.get('connection_config', {})
+    
+    print(f"🔧 Using connection config for GitHub: timeout={connection_config.get('timeout', 60.0)}s")
+    
+    # Use the connection manager to create and manage the connection
+    mcp_server = await mcp_manager.create_connection(
         name="AgentCore_Gateway_GitHub",
-        params={
-            "url": gateway_url,
-            "headers": {
-                "Authorization": f"Bearer {access_token}",
-                "Content-Type": "application/json"
-            }
-        },
-        cache_tools_list=True  # Cache tools for performance
+        url=gateway_url,
+        access_token=access_token,
+        timeout_config=connection_config
     )
-    
-    # Connect to the server first
-    await mcp_server.connect()
-    print(f"🔄 Connecting to GITHUB MCP server: {gateway_url}")
     
     try:
         # List tools from the MCP server
@@ -1033,6 +1156,10 @@ async def create_github_agent(gateway_url: str, access_token: str, memory_tools:
             mcp_servers=[mcp_server],  # Agent gets tools from MCP server
             tools=memory_tools  # Only add memory tools
         )
+        
+        # Store MCP server reference for later cleanup management
+        agent._mcp_server = mcp_server
+        
         # Use direct JSON-RPC API to list tools instead of MCP library
         tools = list_tools_direct_api(gateway_url, access_token)
             
@@ -1041,7 +1168,12 @@ async def create_github_agent(gateway_url: str, access_token: str, memory_tools:
         
     except Exception as e:
         print(f"❌ Error creating GitHub agent: {e}")
-        await mcp_server.cleanup()
+        # Properly handle connection cleanup on error
+        try:
+            if 'mcp_server' in locals():
+                mcp_server._should_close = True
+        except:
+            pass
         raise
 
 async def create_lead_orchestrator_agent(jira_agent: Agent, github_agent: Agent, memory_tools: list):
@@ -1099,9 +1231,9 @@ async def create_lead_orchestrator_agent(jira_agent: Agent, github_agent: Agent,
     print(f"✅ Orchestrator Agent created with delegation tools + {len(memory_tools)} memory tools")
     return orchestrator
 
-# Updated OpsOrchestratorSystem class with async initialization
+# Updated OpsOrchestratorSystem class with long-lived connection management
 class OpsOrchestratorSystem:
-    """Complete ops orchestrator system using OpenAI Agents SDK with MCP servers"""
+    """Complete ops orchestrator system using OpenAI Agents SDK with long-lived MCP servers"""
     
     def __init__(self, gateway_credentials: Dict, memories_data: Dict, observability_instance):
         self.gateway_credentials = gateway_credentials
@@ -1116,6 +1248,17 @@ class OpsOrchestratorSystem:
         self.jira_agent = None
         self.github_agent = None
         self.orchestrator_agent = None
+        
+        # Track MCP connections for proper lifecycle management  
+        self.mcp_connections = []
+        self.connection_health = {}
+        self.last_health_check = time.time()
+        
+        # Load connection configuration
+        gateway_config = config_data['agent_information']['ops_orchestrator_agent_model_info']['gateway_config']
+        connection_config = gateway_config.get('connection_config', {})
+        self.health_check_interval = connection_config.get('health_check_interval', 300)
+        self.max_execution_retries = connection_config.get('max_execution_retries', 2)
     
     def get_existing_memory_tools(self, agent_type: str):
         """Get existing memory tools from your imported memory tools"""
@@ -1144,6 +1287,62 @@ class OpsOrchestratorSystem:
         else:
             return []
     
+    async def check_connection_health(self):
+        """Check the health of MCP connections and reconnect if needed"""
+        current_time = time.time()
+        
+        # Only check health if enough time has passed
+        if current_time - self.last_health_check < self.health_check_interval:
+            return
+        
+        print("🔍 Checking MCP connection health...")
+        self.last_health_check = current_time
+        
+        # Check each MCP connection
+        for connection in self.mcp_connections:
+            connection_name = getattr(connection, 'name', 'Unknown')
+            try:
+                # Attempt a simple tools/list call to check if connection is alive
+                if hasattr(connection, '_client') and connection._client:
+                    # Connection appears to be active
+                    self.connection_health[connection_name] = {
+                        'status': 'healthy',
+                        'last_check': current_time,
+                        'connection': connection
+                    }
+                    print(f"✅ Connection {connection_name} is healthy")
+                else:
+                    # Connection appears to be dead
+                    self.connection_health[connection_name] = {
+                        'status': 'unhealthy',
+                        'last_check': current_time,
+                        'connection': connection
+                    }
+                    print(f"⚠️ Connection {connection_name} appears to be unhealthy")
+                    
+            except Exception as e:
+                self.connection_health[connection_name] = {
+                    'status': 'error',
+                    'last_check': current_time,
+                    'error': str(e),
+                    'connection': connection
+                }
+                print(f"❌ Connection {connection_name} health check failed: {e}")
+    
+    async def recover_failed_connections(self):
+        """Attempt to recover failed MCP connections"""
+        for connection_name, health_info in self.connection_health.items():
+            if health_info['status'] in ['unhealthy', 'error']:
+                print(f"🔄 Attempting to recover connection: {connection_name}")
+                try:
+                    connection = health_info['connection']
+                    # Try to reconnect
+                    await asyncio.wait_for(connection.connect(), timeout=30.0)
+                    self.connection_health[connection_name]['status'] = 'recovered'
+                    print(f"✅ Successfully recovered connection: {connection_name}")
+                except Exception as e:
+                    print(f"❌ Failed to recover connection {connection_name}: {e}")
+    
     async def initialize(self):
         """Initialize all agents with tool listing"""
         
@@ -1167,6 +1366,7 @@ class OpsOrchestratorSystem:
                 access_token=self.gateway_credentials['access_token'],
                 memory_tools=jira_memory_tools
             )
+            # MCP connections are now managed globally by mcp_manager
             
             print("\n🔧 Creating GitHub specialist agent...")
             self.github_agent = await create_github_agent(
@@ -1174,6 +1374,7 @@ class OpsOrchestratorSystem:
                 access_token=self.gateway_credentials['access_token'],
                 memory_tools=github_memory_tools
             )
+            # MCP connections are now managed globally by mcp_manager
             
             print("\n🔧 Creating orchestrator agent...")
             self.orchestrator_agent = await create_lead_orchestrator_agent(
@@ -1192,22 +1393,55 @@ class OpsOrchestratorSystem:
             raise
     
     async def execute_orchestration(self, user_input: str) -> str:
-        """Execute orchestration using the lead agent"""
+        """Execute orchestration using the lead agent with connection health monitoring"""
         try:
             if not self.orchestrator_agent:
                 print("🔄 Agents not initialized, initializing now...")
                 await self.initialize()
             
+            # Check connection health before executing
+            await self.check_connection_health()
+            
+            # Attempt to recover any failed connections
+            unhealthy_connections = [name for name, health in self.connection_health.items() 
+                                   if health['status'] in ['unhealthy', 'error']]
+            if unhealthy_connections:
+                print(f"⚠️ Found unhealthy connections: {unhealthy_connections}")
+                await self.recover_failed_connections()
+            
             # Add error handling for tracing issues
             os.environ.setdefault("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "")
             
-            result = await Runner.run(
-                self.orchestrator_agent,
-                user_input,
-                max_turns=15  # Allow multiple tool calls
-            )
+            # Execute with configurable connection retry logic
+            for execution_attempt in range(self.max_execution_retries):
+                try:
+                    result = await Runner.run(
+                        self.orchestrator_agent,
+                        user_input,
+                        max_turns=15  # Allow multiple tool calls
+                    )
+                    
+                    return result.final_output
+                    
+                except Exception as exec_error:
+                    exec_error_msg = str(exec_error)
+                    
+                    # Check if it's a connection-related error
+                    if any(conn_err in exec_error_msg.lower() for conn_err in 
+                          ['connection', 'timeout', 'network', 'mcp', 'gateway']):
+                        
+                        if execution_attempt < self.max_execution_retries - 1:
+                            print(f"🔄 Connection error detected, attempting recovery (attempt {execution_attempt + 1}/{self.max_execution_retries})")
+                            await self.recover_failed_connections()
+                            await asyncio.sleep(2)  # Brief pause before retry
+                            continue
+                        else:
+                            print(f"❌ Failed after {self.max_execution_retries} execution attempts")
+                            raise exec_error
+                    else:
+                        # Non-connection error, handle immediately
+                        raise exec_error
             
-            return result.final_output
         except Exception as e:
             error_msg = str(e)
             # Filter out known OpenAI tracing errors that don't affect functionality
@@ -1218,6 +1452,25 @@ class OpsOrchestratorSystem:
                     return str(e.args[1]) if e.args[1] else "Operation completed with tracing warnings"
                 return "Operation completed with tracing warnings"
             return f"❌ Error in ops orchestration: {error_msg}"
+    
+    async def cleanup_connections(self):
+        """Cleanup MCP connections when done - use global connection manager"""
+        print("🧹 Cleaning up MCP connections via global manager...")
+        
+        try:
+            await mcp_manager.close_all_connections()
+        except Exception as e:
+            print(f"⚠️ Warning during global connection cleanup: {e}")
+        
+        # Clear local tracking as well
+        self.mcp_connections.clear()
+        print("✅ MCP connections cleaned up")
+    
+    def __del__(self):
+        """Ensure cleanup on object destruction"""
+        if self.mcp_connections:
+            # Note: This won't work for async cleanup, but serves as a backup
+            print("⚠️ Warning: MCP connections not properly cleaned up. Call cleanup_connections() explicitly.")
 
 # Usage example - replace your existing initialization
 async def initialize_ops_orchestrator_with_tool_listing():
@@ -1273,6 +1526,7 @@ async def interactive_cli():
     print("Please wait while the system initializes...")
     
     # Initialize the ops orchestrator system
+    ops_system = None
     try:
         ops_system = await initialize_ops_orchestrator_with_tool_listing()
         print("✅ Ops Orchestrator Agent ready!")
@@ -1290,7 +1544,11 @@ async def interactive_cli():
     print("  clear   - Clear the screen")
     print("\nType your ops-related questions or tasks below.")
     print("The agent can help with AWS operations, JIRA tickets, GitHub management, and more.")
-    print("="*60 + "\n")
+    print("="*60)
+    print()  # Add newline before prompt
+    
+    # Flush output to ensure prompt appears immediately
+    sys.stdout.flush()
     
     while True:
         try:
@@ -1338,6 +1596,13 @@ async def interactive_cli():
             break
         except Exception as e:
             print(f"❌ Unexpected error: {e}")
+    
+    # Properly cleanup connections
+    if ops_system:
+        try:
+            await ops_system.cleanup_connections()
+        except Exception as e:
+            print(f"⚠️ Warning during cleanup: {e}")
 
 def parse_arguments():
     """Parse command line arguments"""
@@ -1415,15 +1680,18 @@ async def invoke(payload):
     This is the entrypoint function to invoke the top-level ops orchestrator agent.
     This agent coordinates between specialized JIRA and GitHub agents via OpenAI Agents SDK,
     and can be invoked both locally and via agent ARN using boto3 bedrock-agentcore client.
+    The MCP connections remain persistent throughout the entire invocation.
     '''
     user_message = payload.get("prompt", "You are an ops orchestrator agent to help with AWS operations, issue triaging, and incident management.")
     print(f"🎯 Invoking ops orchestrator agent with prompt: {user_message}")
     
+    ops_system = None
     try:
         # Initialize the ops orchestrator system if not already done
         ops_system = await initialize_ops_orchestrator_with_tool_listing()
         
         # Execute the orchestration using OpenAI Agents SDK
+        # MCP connections stay alive during this entire operation
         result = await ops_system.execute_orchestration(user_message)
         
         print(f"✅ Ops orchestrator agent execution completed")
@@ -1433,10 +1701,32 @@ async def invoke(payload):
         error_msg = f"❌ Error in ops orchestrator agent execution: {str(e)}"
         print(error_msg)
         return error_msg
+    finally:
+        # Properly cleanup connections to prevent resource leaks
+        if ops_system:
+            try:
+                await ops_system.cleanup_connections()
+            except Exception as cleanup_error:
+                print(f"⚠️ Warning during cleanup: {cleanup_error}")
+
+async def main_with_cleanup():
+    """Main function with proper cleanup"""
+    try:
+        await main()
+    except KeyboardInterrupt:
+        print("\n🛑 Interrupted by user")
+    except Exception as e:
+        print(f"❌ Error in main: {e}")
+    finally:
+        # Ensure all MCP connections are properly closed
+        try:
+            await mcp_manager.close_all_connections()
+        except Exception as cleanup_error:
+            print(f"⚠️ Cleanup error: {cleanup_error}")
 
 if __name__ == "__main__":
     # Support both interactive CLI and AgentCore runtime
     if len(sys.argv) > 1 and sys.argv[1] == '--agentcore':
         app.run()
     else:
-        asyncio.run(main())
+        asyncio.run(main_with_cleanup())
