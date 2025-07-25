@@ -31,10 +31,18 @@ import boto3
 import shutil
 import logging
 import base64
+import asyncio
 from datetime import datetime
 from dotenv import load_dotenv
 from typing import Dict, Any, Optional
 from botocore.exceptions import ClientError
+# Load environment variables first
+load_dotenv()
+
+# Disable OpenAI tracing to prevent span_data.result errors
+import os
+os.environ["OPENAI_ENABLE_TRACING"] = "false"
+
 from bedrock_agentcore.memory import MemoryClient
 # This will help set up for strategies that can then be used 
 # across the code - user preferences, semantic memory or even
@@ -60,7 +68,7 @@ logging.getLogger("strands").setLevel(logging.DEBUG)
 from bedrock_agentcore_starter_toolkit.operations.gateway import GatewayClient
 # These are openAI tools created to extract from, retrieve, store and manage memory through
 # the amazon bedrock agentcore service
-from openAI_memory_tools import create_chatops_agent_memory_tools, create_lead_agent_memory_tools
+from openAI_memory_tools import create_memory_tools
 
 # define openAI specific import statements
 from agents import Agent, Runner
@@ -868,9 +876,9 @@ print(f"Access token configured: {'Yes' if access_token else 'No'}")
 print("🚀 Continuing with ops orchestrator multi-agent setup...")
 
 # Load prompt templates
-prompt_template_path_lead_agent: str = f'{PROMPT_TEMPLATE_DIR}/{config_data["agent_information"]["prompt_templates"].get("ops_orchestrator_agent", "ops_orchestrator_agent_prompt_template.txt")}'
-prompt_template_path_jira_agent: str = f'{PROMPT_TEMPLATE_DIR}/{config_data["agent_information"]["prompt_templates"].get("ops_orchestrator_agent", "jira_agent_prompt.txt")}'
-prompt_template_path_github_agent: str = f'{PROMPT_TEMPLATE_DIR}/{config_data["agent_information"]["prompt_templates"].get("ops_orchestrator_agent", "github_agent_prompt.txt")}'
+prompt_template_path_lead_agent: str = "prompt_template/ops_orchestrator_agent_prompt.txt"
+prompt_template_path_jira_agent: str = "prompt_template/jira_agent_prompt.txt"
+prompt_template_path_github_agent: str = "prompt_template/github_agent_prompt.txt"
 logger.info(f"Going to read the ops orchestrator agent prompt template from: {prompt_template_path_lead_agent}")
 logger.info(f"Going to read the github agent prompt template from: {prompt_template_path_github_agent}")
 logger.info(f"Going to read the jira agent prompt template from: {prompt_template_path_jira_agent}")
@@ -884,284 +892,438 @@ print(f"Going to read the jira agent prompt template from: {JIRA_AGENT_PROMPT}")
 # ────────────────────────────────────────────────────────────────────────────────────
 # SPECIALIZED AGENT CLASSES FOR OPENAI AGENTS SDK - USING ONLY GATEWAY TOOLS
 # ────────────────────────────────────────────────────────────────────────────────────
+"""
+OpenAI Agents SDK implementation with MCP servers
+Agents get tools directly from MCP servers - no custom tools added
+"""
 
-class JIRAAgent:
-    """JIRA-specialized agent using only tools from the MCP gateway"""
-    
-    def __init__(self, gateway_credentials_path: str):
-        self.gateway_credentials_path = gateway_credentials_path
-        self.agent = None
-        self.mcp_client = None
-        self._initialize_mcp_client()
-        self._initialize_agent()
-    
-    def _create_streamable_http_transport(self):
-        """Create streamable HTTP transport using gateway credentials"""
-        try:
-            with open(self.gateway_credentials_path, 'r') as cred_file:
-                json_credentials = json.load(cred_file)
-                current_access_token = json_credentials['access_token']
-                current_mcp_url = json_credentials['mcp_url']
-            
-            from mcp.client.streamable_http import streamablehttp_client
-            response = streamablehttp_client(current_mcp_url, headers={"Authorization": f"Bearer {current_access_token}"})
-            return response
-        except Exception as e:
-            logger.error(f"An error occurred while connecting to the MCP server: {e}")
-            raise e
-    
-    def _initialize_mcp_client(self):
-        """Initialize MCP client"""
-        try:
-            from strands.tools.mcp.mcp_client import MCPClient
-            self.mcp_client = MCPClient(self._create_streamable_http_transport)
-            logger.info("✅ JIRA MCP client initialized successfully")
-        except Exception as e:
-            logger.error(f"❌ Failed to initialize JIRA MCP client: {e}")
-            raise e
-    
-    def _get_jira_tools_from_gateway(self) -> List:
-        """Get JIRA tools from the MCP gateway"""
-        try:
-            with self.mcp_client:
-                all_gateway_tools = self.mcp_client.list_tools_sync()
-                logger.info(f"Loaded {len(all_gateway_tools)} total tools from Gateway for JIRA agent")
-                
-                # Filter for JIRA-related tools
-                jira_tools = []
-                for tool in all_gateway_tools:
-                    tool_name = tool.get('name', '').lower()
-                    tool_desc = tool.get('description', '').lower()
-                    
-                    # Filter tools that are likely JIRA-related
-                    if any(keyword in tool_name or keyword in tool_desc for keyword in 
-                           ['jira', 'ticket', 'issue', 'project', 'workflow', 'transition']):
-                        jira_tools.append(tool)
-                        logger.info(f"Found JIRA tool: {tool.get('name')}")
-                
-                logger.info(f"Filtered {len(jira_tools)} JIRA-related tools from gateway")
-                return jira_tools
-                
-        except Exception as e:
-            logger.error(f"❌ Error getting JIRA tools from gateway: {e}")
-            return []
-    
-    def _initialize_agent(self):
-        """Initialize the JIRA agent with filtered JIRA tools from gateway only"""
-        try:
-            # Get JIRA tools from MCP gateway only
-            jira_tools = self._get_jira_tools_from_gateway()
-            
-            # Create OpenAI agent with JIRA specialization using only gateway tools
-            self.agent = Agent(
-                name="JIRA_Specialist",
-                instructions=JIRA_AGENT_PROMPT,
-                model="gpt-4o-2024-08-06",
-                tools=jira_tools  # Only gateway tools
-            )
-            
-            logger.info(f"✅ JIRA agent initialized with {len(jira_tools)} gateway tools")
-            
-        except Exception as e:
-            logger.error(f"❌ Failed to initialize JIRA agent: {e}")
-            raise e
-    
-    def execute_jira_task(self, task_description: str) -> str:
-        """Execute a JIRA task using the agent within MCP session context"""
-        try:
-            with self.mcp_client:
-                result = Runner.run_sync(self.agent, task_description)
-                return result
-        except Exception as e:
-            logger.error(f"Error executing JIRA task: {e}")
-            return f"Error executing JIRA task: {str(e)}"
-
-class GitHubAgent:
-    """GitHub-specialized agent using only tools from the MCP gateway"""
-    
-    def __init__(self, gateway_credentials_path: str):
-        self.gateway_credentials_path = gateway_credentials_path
-        self.agent = None
-        self.mcp_client = None
-        self._initialize_mcp_client()
-        self._initialize_agent()
-    
-    def _create_streamable_http_transport(self):
-        """Create streamable HTTP transport using gateway credentials"""
-        try:
-            with open(self.gateway_credentials_path, 'r') as cred_file:
-                json_credentials = json.load(cred_file)
-                current_access_token = json_credentials['access_token']
-                current_mcp_url = json_credentials['mcp_url']
-            
-            from mcp.client.streamable_http import streamablehttp_client
-            response = streamablehttp_client(current_mcp_url, headers={"Authorization": f"Bearer {current_access_token}"})
-            return response
-        except Exception as e:
-            logger.error(f"An error occurred while connecting to the MCP server: {e}")
-            raise e
-    
-    def _initialize_mcp_client(self):
-        """Initialize MCP client"""
-        try:
-            from strands.tools.mcp.mcp_client import MCPClient
-            self.mcp_client = MCPClient(self._create_streamable_http_transport)
-            logger.info("✅ GitHub MCP client initialized successfully")
-        except Exception as e:
-            logger.error(f"❌ Failed to initialize GitHub MCP client: {e}")
-            raise e
-    
-    def _get_github_tools_from_gateway(self) -> List:
-        """Get GitHub tools from the MCP gateway"""
-        try:
-            with self.mcp_client:
-                all_gateway_tools = self.mcp_client.list_tools_sync()
-                logger.info(f"Loaded {len(all_gateway_tools)} total tools from Gateway for GitHub agent")
-                
-                # Filter for GitHub-related tools
-                github_tools = []
-                for tool in all_gateway_tools:
-                    tool_name = tool.get('name', '').lower()
-                    tool_desc = tool.get('description', '').lower()
-                    
-                    # Filter tools that are likely GitHub-related
-                    if any(keyword in tool_name or keyword in tool_desc for keyword in 
-                           ['github', 'git', 'repo', 'repository', 'commit', 'pull', 'issue', 'branch']):
-                        github_tools.append(tool)
-                        logger.info(f"Found GitHub tool: {tool.get('name')}")
-                
-                logger.info(f"Filtered {len(github_tools)} GitHub-related tools from gateway")
-                return github_tools
-                
-        except Exception as e:
-            logger.error(f"❌ Error getting GitHub tools from gateway: {e}")
-            return []
-    
-    def _initialize_agent(self):
-        """Initialize the GitHub agent with filtered GitHub tools from gateway only"""
-        try:
-            # Get GitHub tools from MCP gateway only
-            github_tools = self._get_github_tools_from_gateway()
-            
-            # Create OpenAI agent with GitHub specialization using only gateway tools
-            self.agent = Agent(
-                name="GitHub_Specialist",
-                instructions=GITHUB_AGENT_PROMPT,
-                model="gpt-4o-2024-08-06",
-                tools=github_tools  # Only gateway tools
-            )
-            
-            logger.info(f"✅ GitHub agent initialized with {len(github_tools)} gateway tools")
-            
-        except Exception as e:
-            logger.error(f"❌ Failed to initialize GitHub agent: {e}")
-            raise e
-    
-    def execute_github_task(self, task_description: str) -> str:
-        """Execute a GitHub task using the agent within MCP session context"""
-        try:
-            with self.mcp_client:
-                result = Runner.run_sync(self.agent, task_description)
-                return result
-        except Exception as e:
-            logger.error(f"Error executing GitHub task: {e}")
-            return f"Error executing GitHub task: {str(e)}"
+from agents import Agent, Runner, function_tool
+from agents.mcp import MCPServerStreamableHttp
 
 # ────────────────────────────────────────────────────────────────────────────────────
-# TOOL FUNCTIONS FOR LEAD AGENT TO USE SPECIALIZED AGENTS AS TOOLS
+# SPECIALIST AGENTS USING MCP SERVERS DIRECTLY
 # ────────────────────────────────────────────────────────────────────────────────────
 
-def create_jira_ticket_tool(jira_agent: JIRAAgent):
-    """Create a tool function for the lead agent to create JIRA tickets"""
-    def create_jira_ticket(issue_description: str, priority: str = "Medium", issue_type: str = "Bug") -> str:
-        """Create a JIRA ticket for incident management
+def create_jira_agent(gateway_url: str, access_token: str, memory_tools: list):
+    """Create JIRA specialist agent that gets tools from MCP server"""
+    
+    # Create MCP server connection to the gateway
+    mcp_server = MCPServerStreamableHttp(
+        # this is the MCP server for JIRA
+        name="AgentCore_Gateway_JIRA",
+        params={
+            "url": gateway_url,
+            "headers": {
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json"
+            }
+        },
+        # cache tools for better performance so there is no additional latency
+        cache_tools_list=True 
+    )
+    
+    # Disable OpenAI tracing to prevent span_data.result errors
+    import os
+    os.environ["OPENAI_ENABLE_TRACING"] = "false"
+    
+    # Create agent with MCP server - it will automatically get all tools from the server
+    return Agent(
+        name="JIRA_Specialist",
+        instructions=JIRA_AGENT_PROMPT,  # Use your existing prompt
+        model="gpt-4o",
+        mcp_servers=[mcp_server],  # Agent gets tools from MCP server
+        tools=memory_tools  # Only add memory tools
+    )
+
+def create_github_agent(gateway_url: str, access_token: str, memory_tools: list):
+    """Create GitHub specialist agent that gets tools from MCP server"""
+    
+    # Create MCP server connection to the gateway  
+    mcp_server = MCPServerStreamableHttp(
+        name="AgentCore_Gateway_GitHub",
+        params={
+            "url": gateway_url,
+            "headers": {
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json"
+            }
+        },
+        cache_tools_list=True  # Cache tools for performance
+    )
+    
+    # Disable OpenAI tracing to prevent span_data.result errors
+    import os
+    os.environ["OPENAI_ENABLE_TRACING"] = "false"
+    
+    # Create agent with MCP server - it will automatically get all tools from the server
+    return Agent(
+        name="GitHub_Specialist",
+        instructions=GITHUB_AGENT_PROMPT,  # Use your existing prompt
+        model="gpt-4o", 
+        mcp_servers=[mcp_server],  # Agent gets tools from MCP server
+        tools=memory_tools  # Only add memory tools
+    )
+
+def create_lead_orchestrator_agent(jira_agent: Agent, github_agent: Agent, memory_tools: list):
+    """Create lead orchestrator agent with specialist agents as tools"""
+    
+    # Create delegation tools using the specialist agents
+    @function_tool
+    async def delegate_to_jira_specialist(task_description: str) -> str:
+        """
+        Delegate JIRA-related tasks to the JIRA specialist agent.
+        Use for creating tickets, updating issues, querying JIRA data, managing workflows.
         
         Args:
-            issue_description: Description of the issue or incident
-            priority: Priority level (Low, Medium, High, Critical)
-            issue_type: Type of issue (Bug, Task, Story, Epic)
-        
-        Returns:
-            str: Ticket creation result with ticket ID and details
+            task_description: Detailed description of the JIRA task
         """
-        task = f"""Create a JIRA ticket with the following details:
-        - Issue Description: {issue_description}
-        - Priority: {priority}
-        - Issue Type: {issue_type}
-        
-        Please use the available JIRA tools to create this ticket and return the ticket ID, key, and link."""
-        
-        return jira_agent.execute_jira_task(task)
+        try:
+            result = await Runner.run(jira_agent, task_description)
+            return f"🎫 JIRA Specialist Result: {result.final_output}"
+        except Exception as e:
+            return f"❌ JIRA delegation error: {str(e)}"
     
-    return create_jira_ticket
-
-def query_jira_tickets_tool(jira_agent: JIRAAgent):
-    """Create a tool function for the lead agent to query JIRA tickets"""
-    def query_jira_tickets(query_criteria: str) -> str:
-        """Query JIRA tickets based on criteria
+    @function_tool
+    async def delegate_to_github_specialist(task_description: str) -> str:
+        """
+        Delegate GitHub-related tasks to the GitHub specialist agent.
+        Use for creating repos, issues, gists, managing code, documentation.
         
         Args:
-            query_criteria: Search criteria (can be JQL or natural language description)
-        
-        Returns:
-            str: Query results with ticket information
+            task_description: Detailed description of the GitHub task
         """
-        task = f"""Query JIRA tickets using the following criteria:
-        {query_criteria}
-        
-        Please search for tickets matching these criteria and return structured information."""
-        
-        return jira_agent.execute_jira_task(task)
+        try:
+            result = await Runner.run(github_agent, task_description)
+            return f"🐙 GitHub Specialist Result: {result.final_output}"
+        except Exception as e:
+            return f"❌ GitHub delegation error: {str(e)}"
     
-    return query_jira_tickets
-
-def create_github_report_tool(github_agent: GitHubAgent):
-    """Create a tool function for the lead agent to create GitHub reports"""
-    def create_github_report(repo_name: str, report_content: str, branch: str = "main") -> str:
-        """Create a GitHub report or documentation
-        
-        Args:
-            repo_name: GitHub repository name (owner/repo format)
-            report_content: Content of the report to create
-            branch: Target branch for the report
-        
-        Returns:
-            str: Report creation result with commit details
-        """
-        task = f"""Create a GitHub report in repository {repo_name} with the following:
-        - Repository: {repo_name}
-        - Branch: {branch}
-        - Report Content: {report_content}
-        
-        Please use GitHub tools to create this report and return the commit details."""
-        
-        return github_agent.execute_github_task(task)
+    # Alternative: Use the .as_tool() method for simpler delegation
+    jira_tool = jira_agent.as_tool(
+        tool_name="jira_specialist_agent",
+        tool_description="JIRA specialist agent for all ticket management, issue tracking, and project workflow tasks."
+    )
     
-    return create_github_report
-
-def query_github_issues_tool(github_agent: GitHubAgent):
-    """Create a tool function for the lead agent to query GitHub issues"""
-    def query_github_issues(repo_name: str, query_criteria: str) -> str:
-        """Query GitHub issues in a repository
-        
-        Args:
-            repo_name: GitHub repository name (owner/repo format)
-            query_criteria: Search criteria for issues
-        
-        Returns:
-            str: Query results with issue information
-        """
-        task = f"""Query GitHub issues in repository {repo_name} using criteria:
-        {query_criteria}
-        
-        Please search for issues and return structured information."""
-        
-        return github_agent.execute_github_task(task)
+    github_tool = github_agent.as_tool(
+        tool_name="github_specialist_agent", 
+        tool_description="GitHub specialist agent for all code repository, issue tracking, and development workflow tasks."
+    )
     
-    return query_github_issues
+    # Disable OpenAI tracing to prevent span_data.result errors
+    import os
+    os.environ["OPENAI_ENABLE_TRACING"] = "false"
+    
+    # Create the orchestrator agent
+    return Agent(
+        name="Ops_Orchestrator",
+        instructions=OPS_ORCHESTRATOR_AGENT_SYSTEM_PROMPT,  # Use your existing prompt
+        model="gpt-4o",
+        tools=[
+            # Specialist agent delegation tools (choose one approach)
+            delegate_to_jira_specialist,
+            delegate_to_github_specialist,
+            
+            # Alternative: Direct agent tools
+            # jira_tool,
+            # github_tool,
+            
+            # Memory tools for orchestrator
+            *memory_tools
+        ]
+    )
 
+# ────────────────────────────────────────────────────────────────────────────────────
+# ORCHESTRATOR SYSTEM USING YOUR EXISTING SETUP
+# ────────────────────────────────────────────────────────────────────────────────────
 
+class OpsOrchestratorSystem:
+    """Complete ops orchestrator system using OpenAI Agents SDK with MCP servers"""
+    
+    def __init__(self, gateway_credentials: Dict, memories_data: Dict, observability_instance):
+        self.gateway_credentials = gateway_credentials
+        self.memories_data = memories_data
+        self.observability = observability_instance
+        
+        # Session context from your observability setup
+        self.actor_id = observability_instance.get_actor_id() if observability_instance else f"ops_actor_{int(time.time())}"
+        self.session_id = observability_instance.get_session_id() if observability_instance else f"ops_session_{str(uuid.uuid4())}"
+        
+        # Agent instances
+        self.jira_agent = None
+        self.github_agent = None
+        self.orchestrator_agent = None
+    
+    def get_existing_memory_tools(self, agent_type: str):
+        """Get existing memory tools from your imported memory tools"""
+        
+        if agent_type == 'lead_agent':
+            return create_memory_tools(
+                self.memories_data['lead_agent']['id'],
+                openai_mem_client,  # Your existing memory client
+                actor_id=self.actor_id,
+                session_id=self.session_id
+            )
+        elif agent_type == 'chat_ops_agent':
+            return create_memory_tools(
+                self.memories_data['chat_ops_agent']['id'],
+                openai_mem_client,  # Your existing memory client
+                actor_id=self.actor_id,
+                session_id=self.session_id
+            )
+        elif agent_type == 'ticket_agent':
+            # Use lead agent tools for ticket agent
+            return create_memory_tools(
+                self.memories_data['ticket_agent']['id'],
+                openai_mem_client,  # Your existing memory client
+                actor_id=self.actor_id,
+                session_id=self.session_id
+            )
+        else:
+            return []
+    
+    async def initialize(self):
+        """Initialize all agents"""
+        
+        # Get memory tools for each agent
+        jira_memory_tools = self.get_existing_memory_tools('ticket_agent')
+        github_memory_tools = self.get_existing_memory_tools('chat_ops_agent')
+        orchestrator_memory_tools = self.get_existing_memory_tools('lead_agent')
+        
+        # Create specialist agents with MCP server connections
+        self.jira_agent = create_jira_agent(
+            gateway_url=self.gateway_credentials['mcp_url'],
+            access_token=self.gateway_credentials['access_token'],
+            memory_tools=jira_memory_tools
+        )
+        
+        self.github_agent = create_github_agent(
+            gateway_url=self.gateway_credentials['mcp_url'],
+            access_token=self.gateway_credentials['access_token'],
+            memory_tools=github_memory_tools
+        )
+        
+        # Create orchestrator agent with specialist agents as tools
+        self.orchestrator_agent = create_lead_orchestrator_agent(
+            jira_agent=self.jira_agent,
+            github_agent=self.github_agent,
+            memory_tools=orchestrator_memory_tools
+        )
+        
+        print(f"✅ All agents initialized:")
+        print(f"   - JIRA Agent: Connected to MCP gateway")
+        print(f"   - GitHub Agent: Connected to MCP gateway")
+        print(f"   - Orchestrator Agent: Using specialist agents as tools")
+    
+    async def execute_orchestration(self, user_input: str) -> str:
+        """Execute orchestration using the lead agent"""
+        try:
+            if not self.orchestrator_agent:
+                await self.initialize()
+            
+            # Add error handling for tracing issues
+            import os
+            os.environ.setdefault("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "")
+            
+            result = await Runner.run(
+                self.orchestrator_agent,
+                user_input,
+                max_turns=15  # Allow multiple tool calls
+            )
+            
+            return result.final_output
+        except Exception as e:
+            error_msg = str(e)
+            # Filter out known OpenAI tracing errors that don't affect functionality
+            if "span_data.result" in error_msg and "expected an array of strings" in error_msg:
+                print(f"⚠️  Non-fatal tracing error (continuing): {error_msg}")
+                # Try to extract actual result if available
+                if hasattr(e, 'args') and len(e.args) > 1:
+                    return str(e.args[1]) if e.args[1] else "Operation completed with tracing warnings"
+                return "Operation completed with tracing warnings"
+            return f"❌ Error in ops orchestration: {error_msg}"
 
+# ────────────────────────────────────────────────────────────────────────────────────
+# INITIALIZE THE ORCHESTRATOR SYSTEM WITH YOUR EXISTING SETUP
+# ────────────────────────────────────────────────────────────────────────────────────
+
+print("🚀 Initializing OpenAI Agents SDK Orchestrator System with MCP servers...")
+
+# Create the orchestrator system using your existing components
+ops_orchestrator_system = OpsOrchestratorSystem(
+    gateway_credentials={
+        'mcp_url': mcp_url,
+        'access_token': access_token,
+        'gateway_id': gateway_id
+    },
+    memories_data=memories_data,  # Your existing memory data
+    observability_instance=_observability_instance  # Your existing observability
+)
+
+print(f"✅ Ops Orchestrator System initialized with:")
+print(f"   - Gateway URL: {mcp_url}")
+print(f"   - Memories: {list(memories_data.keys())}")
+print(f"   - Actor ID: {ops_orchestrator_system.actor_id}")
+print(f"   - Session ID: {ops_orchestrator_system.session_id}")
+
+# ────────────────────────────────────────────────────────────────────────────────────
+# AGENTCORE APP ENTRYPOINT
+# ────────────────────────────────────────────────────────────────────────────────────
+
+from bedrock_agentcore.runtime import BedrockAgentCoreApp
+
+app = BedrockAgentCoreApp()
+
+@app.entrypoint
+async def invoke(payload):
+    """AgentCore entrypoint for the ops orchestrator system"""
+    user_message = payload.get("prompt", "Help me with AWS operations and incident management.")
+    print(f"🎯 Invoking ops orchestrator with: {user_message}")
+    
+    try:
+        result = await ops_orchestrator_system.execute_orchestration(user_message)
+        return result
+    except Exception as e:
+        error_msg = f"❌ Error in ops orchestrator: {str(e)}"
+        print(error_msg)
+        return error_msg
+
+# ────────────────────────────────────────────────────────────────────────────────────
+# TESTING FUNCTIONS
+# ────────────────────────────────────────────────────────────────────────────────────
+
+async def test_orchestrator_system():
+    """Test the orchestrator system with sample scenarios"""
+    
+    test_scenarios = [
+        "Create a high-priority JIRA ticket for the API gateway timeout errors we've been seeing in production.",
+        "Generate a GitHub issue for the memory leak in our Lambda function and create a gist with debugging steps.",
+        "I need to track this production incident - create tickets in both JIRA and GitHub with proper cross-references.",
+        "Review our recent CloudWatch alarms and create appropriate tracking tickets for any critical issues."
+    ]
+    
+    print("🧪 Testing Ops Orchestrator System...")
+    
+    for i, scenario in enumerate(test_scenarios, 1):
+        print(f"\n{'='*80}")
+        print(f"🎯 Test Scenario {i}: {scenario}")
+        print(f"{'='*80}")
+        
+        try:
+            result = await ops_orchestrator_system.execute_orchestration(scenario)
+            print(f"✅ Result: {result}")
+        except Exception as e:
+            print(f"❌ Error: {e}")
+        
+        await asyncio.sleep(2)
+
+def run_local_test():
+    """Run local test of the orchestrator system"""
+    import asyncio
+    asyncio.run(test_orchestrator_system())
+
+# ────────────────────────────────────────────────────────────────────────────────────
+# USAGE INSTRUCTIONS
+# ────────────────────────────────────────────────────────────────────────────────────
+
+print("""
+🎉 OpenAI Agents SDK Ops Orchestrator Setup Complete!
+
+📋 KEY FEATURES:
+   ✅ JIRA Agent: Gets tools directly from MCP gateway
+   ✅ GitHub Agent: Gets tools directly from MCP gateway  
+   ✅ Lead Orchestrator: Uses specialist agents as tools
+   ✅ No custom tools - only MCP server tools + existing memory tools
+   ✅ Proper authentication with AgentCore Gateway
+   ✅ Integrated with your existing memory and observability setup
+
+🔧 USAGE:
+   1. For AgentCore Runtime: app.run()
+   2. For Local Testing: run_local_test()
+   3. For Direct Usage: await ops_orchestrator_system.execute_orchestration("your task")
+
+🚀 Ready to orchestrate operations with MCP tools!
+""")
+
+async def interactive_cli():
+    """Interactive CLI for the Ops Orchestrator System"""
+    print("\n🚀 Ops Orchestrator Interactive CLI")
+    print("=" * 50)
+    print("Available commands:")
+    print("  - Type your request to orchestrate operations")
+    print("  - Type 'quit' or 'exit' to quit")
+    print("  - Type 'test' to run predefined test scenarios")
+    print("  - Type 'help' for this message")
+    print("=" * 50)
+    
+    # Initialize the system once
+    await ops_orchestrator_system.initialize()
+    
+    while True:
+        try:
+            user_input = input("\n🎯 Enter your request: ").strip()
+            
+            if not user_input:
+                continue
+                
+            if user_input.lower() in ['quit', 'exit']:
+                print("👋 Goodbye!")
+                break
+                
+            if user_input.lower() == 'help':
+                print("\n📋 Available commands:")
+                print("  - Type your request to orchestrate operations")
+                print("  - Type 'quit' or 'exit' to quit")
+                print("  - Type 'test' to run predefined test scenarios")
+                print("  - Type 'help' for this message")
+                continue
+                
+            if user_input.lower() == 'test':
+                await test_orchestrator_system()
+                continue
+            
+            print(f"\n🔄 Processing: {user_input}")
+            print("-" * 50)
+            
+            # Execute the orchestration
+            result = await ops_orchestrator_system.execute_orchestration(user_input)
+            
+            print(f"\n✅ Result:")
+            print(result)
+            print("-" * 50)
+            
+        except KeyboardInterrupt:
+            print("\n\n👋 Interrupted by user. Goodbye!")
+            break
+        except Exception as e:
+            print(f"\n❌ Error: {e}")
+            continue
+
+def main():
+    """Main function to choose between interactive CLI, testing, or AgentCore runtime"""
+    import sys
+    
+    if len(sys.argv) > 1:
+        command = sys.argv[1].lower()
+        
+        if command == 'test':
+            print("🧪 Running test scenarios...")
+            run_local_test()
+        elif command == 'runtime':
+            print("🚀 Starting AgentCore runtime...")
+            app.run()
+        elif command == 'interactive':
+            print("🖥️  Starting interactive CLI...")
+            asyncio.run(interactive_cli())
+        else:
+            print(f"❌ Unknown command: {command}")
+            print("Available commands: interactive, test, runtime")
+    else:
+        # Default to interactive mode
+        print("🖥️  Starting interactive CLI (default mode)...")
+        asyncio.run(interactive_cli())
+
+if __name__ == "__main__":
+    main()
 
 
 # # Create a bedrock model using the BedrockModel interface

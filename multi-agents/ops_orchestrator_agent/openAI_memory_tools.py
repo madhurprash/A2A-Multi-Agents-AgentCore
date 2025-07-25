@@ -247,13 +247,7 @@ class AgentMemoryTools:
 
 
 # Factory functions to create memory tools for specific agents
-def create_lead_agent_memory_tools(memory_id: str, client: MemoryClient, actor_id: str, session_id: str):
+def create_memory_tools(memory_id: str, client: MemoryClient, actor_id: str, session_id: str):
     """Create memory tools for the lead orchestrator agent"""
-    memory_tools = AgentMemoryTools(memory_id, client, actor_id, session_id)
-    return memory_tools.create_memory_tools()
-
-
-def create_chatops_agent_memory_tools(memory_id: str, client: MemoryClient, actor_id: str, session_id: str):
-    """Create memory tools for the chat ops agent"""
     memory_tools = AgentMemoryTools(memory_id, client, actor_id, session_id)
     return memory_tools.create_memory_tools()

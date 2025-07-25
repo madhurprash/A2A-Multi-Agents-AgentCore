@@ -17,6 +17,8 @@ dependencies = [
     "aws-opentelemetry-distro==0.10.0",
     "python-dotenv",
     "zmq>=0.0.0",
+    "openai-agents>=0.2.3",
+    "python-keycloak>=5.7.0",
 ]
 
 [build-system]
