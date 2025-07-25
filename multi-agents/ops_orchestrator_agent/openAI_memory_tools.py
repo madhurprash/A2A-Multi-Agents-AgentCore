@@ -13,6 +13,8 @@ class AgentMemoryTools:
     """Memory tools for OpenAI agents based on MonitoringMemoryHooks functionality"""
     
     def __init__(self, memory_id: str, client: MemoryClient, actor_id: str, session_id: str):
+        # These are the variables required to create the memory for the bedrock agentcore
+        # memory client, actor, session, namespaces, etc.
         self.memory_id = memory_id
         self.client = client
         self.actor_id = actor_id
@@ -20,7 +22,10 @@ class AgentMemoryTools:
         self.namespaces = self._get_namespaces()
 
     def _get_namespaces(self) -> Dict:
-        """Get namespace mapping for memory strategies."""
+        """Get namespace mapping for memory strategies.
+        In this, we get the mapping strategies based on the 
+        different namespaces in memory
+        """
         try:
             strategies = self.client.get_memory_strategies(self.memory_id)
             return {i["type"]: i["namespaces"][0] for i in strategies}
@@ -61,6 +66,7 @@ class AgentMemoryTools:
                     search_namespaces = namespaces
                 
                 for ctx_type, namespace in search_namespaces.items():
+                    # We will retrieve memories for the given namespaces if any
                     memories = client.retrieve_memories(
                         memory_id=memory_id,
                         namespace=namespace.format(actorId=actor_id),
@@ -99,6 +105,8 @@ class AgentMemoryTools:
                 Status message indicating success or failure
             """
             try:
+                # Here, we create a memory event that stores the memory for the given 
+                # memory id, actor id, session id.
                 client.create_event(
                     memory_id=memory_id,
                     actor_id=actor_id,
@@ -126,6 +134,8 @@ class AgentMemoryTools:
                 String containing the recent conversation history
             """
             try:
+                # This lists the conversation history for the provided memory id, actor id and session id.
+                # this lists the number of recent conversation turns to retrieve.
                 recent_turns = client.get_last_k_turns(
                     memory_id=memory_id,
                     actor_id=actor_id,
@@ -222,8 +232,14 @@ class AgentMemoryTools:
 
         # Return all the tools
         return [
+            # Here, we create the following memory tools
+            # The retrieved memory tool is used to retrieve memory 
+            # based on a strategy across namespaces for the given actor (in this case the actor is the user or the agent)
             retrieve_monitoring_context,
+            # This creates a memory event for that given actor and session.
             save_interaction_to_memory,
+            # This retrieves the "k" number of conversation turns from the recent conversation for an actor in a specific
+            # session
             get_recent_conversation_history,
             save_custom_memory,
             search_memory_by_namespace

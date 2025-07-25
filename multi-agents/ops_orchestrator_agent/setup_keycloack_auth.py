@@ -4,8 +4,15 @@ import json
 import requests
 import logging
 from typing import Dict, Optional, Tuple
-from keycloak import KeycloakAdmin, KeycloakOpenID
 from keycloak.exceptions import KeycloakError
+from keycloak import KeycloakAdmin, KeycloakOpenID
+
+# steps to run keycloak:
+# docker run -p 127.0.0.1:8080:8080 \
+#   -e KC_BOOTSTRAP_ADMIN_USERNAME=admin \
+#   -e KC_BOOTSTRAP_ADMIN_PASSWORD=admin \
+#   quay.io/keycloak/keycloak:26.3.2 start-dev --http-relative-path /auth
+#  export KEYCLOAK_URL="http://localhost:8080/auth/" && export KEYCLOAK_ADMIN_USER="admin" && export KEYCLOAK_ADMIN_PASS="admin" && python ops_orchestrator_multi_agent.py 
 
 logger = logging.getLogger(__name__)
 
@@ -14,7 +21,6 @@ class KeycloakGatewayAuth:
     Keycloak authentication handler for AWS Bedrock AgentCore Gateway
     Replaces Cognito authentication with Keycloak OpenID Connect
     """
-    
     def __init__(self, config: Dict):
         """
         Initialize Keycloak authentication with configuration
@@ -40,22 +46,30 @@ class KeycloakGatewayAuth:
     def setup_admin_client(self) -> KeycloakAdmin:
         """Setup Keycloak admin client"""
         try:
+            # In this case, we will set up the keycloak admin, but this could be 
+            # anything. This is an example of providing an external OIDC support for
+            # the agentcore gateway solution
             self.keycloak_admin = KeycloakAdmin(
-                server_url=f"{self.keycloak_url}auth/",
+                server_url=self.keycloak_url,
                 username=self.admin_user,
                 password=self.admin_pass,
                 realm_name="master",
                 user_realm_name="master",
                 verify=True
             )
-            logger.info("✅ Connected to Keycloak admin interface")
+            print("✅ Connected to Keycloak admin interface (master realm)")
+            
+            # After realm creation, we need to switch to the target realm for client operations
             return self.keycloak_admin
         except Exception as e:
-            logger.error(f"❌ Failed to connect to Keycloak admin: {e}")
+            print(f"❌ Failed to connect to Keycloak admin: {e}")
             raise
     
     def get_or_create_realm(self) -> str:
-        """Create realm if it doesn't exist or get existing one"""
+        """Create realm if it doesn't exist or get existing one
+        A realm is a fundamental security and administrative domain within a Keycloak server
+        instance. thi represents an isolation space where you can manage users, credentials, roles, groups and clients.
+        """
         try:
             existing_realms = [r["realm"] for r in self.keycloak_admin.get_realms()]
             
@@ -64,24 +78,38 @@ class KeycloakGatewayAuth:
                     self.keycloak_admin.create_realm({
                         "realm": self.realm_name, 
                         "enabled": True,
-                        "displayName": f"AgentCore Gateway Realm - {self.realm_name}"
+                        "displayName": f"AgentCore Gateway Realm for OpenAI agents - {self.realm_name}"
                     })
-                    logger.info(f"✅ Created realm: {self.realm_name}")
+                    print(f"✅ Created realm: {self.realm_name}")
                 else:
-                    raise ValueError(f"Realm '{self.realm_name}' does not exist and create_realm is False")
+                    print(f"Realm '{self.realm_name}' does not exist and create_realm is False")
             else:
-                logger.info(f"ℹ️ Using existing realm: {self.realm_name}")
-                
+                print(f"ℹ️ Using existing realm: {self.realm_name}")
             return self.realm_name
         except Exception as e:
-            logger.error(f"❌ Error with realm setup: {e}")
+            print(f"❌ Error with realm setup: {e}")
             raise
     
+    def get_realm_admin_client(self):
+        """Get admin client that can manage the target realm from master"""
+        # The master realm admin can manage all realms
+        self.keycloak_admin_realm = self.keycloak_admin
+        print(f"✅ Using master admin for realm: {self.realm_name}")
+        return self.keycloak_admin_realm
+    
     def get_or_create_client(self) -> Tuple[str, str]:
-        """Create OIDC client or get existing one, return client_id and secret"""
+        """Create OIDC client or get existing one, return client_id and secret
+        OpenID Connect (OIDC) is an identity auth layer on top of OAuth2.0 that issues 
+        JWT (JSON web tokens) for user based identity support.
+        """
         try:
-            # Check if client already exists
-            existing_clients = self.keycloak_admin.get_clients()
+            # Use master realm admin client with raw API calls for cross-realm management
+            self.get_realm_admin_client()
+            admin_client = self.keycloak_admin
+            
+            # Check if client already exists in the target realm using raw API
+            clients_url = f"admin/realms/{self.realm_name}/clients"
+            existing_clients = admin_client.connection.raw_get(clients_url).json()
             existing_client = None
             
             for client in existing_clients:
@@ -91,68 +119,81 @@ class KeycloakGatewayAuth:
             
             if existing_client:
                 client_uuid = existing_client['id']
-                logger.info(f"ℹ️ Using existing client: {self.client_id}")
-            else:
-                # Create new client
-                client_payload = {
-                    "clientId": self.client_id,
-                    "enabled": True,
-                    "protocol": "openid-connect",
-                    "publicClient": False,
-                    "standardFlowEnabled": False,
-                    "directAccessGrantsEnabled": False,
-                    "serviceAccountsEnabled": True,
-                    "redirectUris": [],
-                    "description": "AgentCore Gateway OIDC Client"
-                }
+                print(f"ℹ️ Found existing client: {self.client_id}")
                 
-                client_uuid = self.keycloak_admin.create_client(client_payload)
-                logger.info(f"✅ Created client: {self.client_id}")
+                # Delete existing client to ensure clean setup
+                delete_url = f"admin/realms/{self.realm_name}/clients/{client_uuid}"
+                admin_client.connection.raw_delete(delete_url)
+                print(f"🗑️ Deleted existing client: {self.client_id}")
             
-            # Get client secret
-            self.client_secret = self.keycloak_admin.get_client_secrets(client_uuid)["value"]
-            logger.info(f"✅ Retrieved client secret")
+            # Create new client (whether existing was deleted or not)
+            client_payload = {
+                "clientId": self.client_id,
+                "enabled": True,
+                "protocol": "openid-connect",
+                "publicClient": False,
+                "standardFlowEnabled": False,
+                "directAccessGrantsEnabled": False,
+                "serviceAccountsEnabled": True,
+                "redirectUris": [],
+                "description": "AgentCore Gateway OIDC Client"
+            }
             
+            # Create client using raw API
+            create_response = admin_client.connection.raw_post(clients_url, data=json.dumps(client_payload))
+            if create_response.status_code != 201:
+                raise Exception(f"Failed to create client: {create_response.text}")
+            
+            # Extract client UUID from Location header
+            location = create_response.headers.get('Location', '')
+            client_uuid = location.split('/')[-1]
+            print(f"✅ Created client: {self.client_id}")
+            
+            # Get client secret using raw API
+            secret_url = f"admin/realms/{self.realm_name}/clients/{client_uuid}/client-secret"
+            secret_response = admin_client.connection.raw_get(secret_url)
+            self.client_secret = secret_response.json()["value"]
+            print(f"✅ Retrieved client secret")
             return self.client_id, self.client_secret
-            
         except Exception as e:
             logger.error(f"❌ Error with client setup: {e}")
             raise
     
     def setup_client_scopes(self, client_uuid: str):
-        """Setup custom scopes for the client"""
+        """Attach configured scopes to a specific Keycloak client."""
         try:
+            admin_client = self.keycloak_admin
+            
             for scope_name in self.scopes:
-                # Check if client scope exists
-                existing_scopes = self.keycloak_admin.get_client_scopes()
-                scope_exists = any(scope.get('name') == scope_name for scope in existing_scopes)
+                # 1️⃣ Ensure the scope exists in the target realm using raw API
+                scopes_url = f"admin/realms/{self.realm_name}/client-scopes"
+                scopes_response = admin_client.connection.raw_get(scopes_url)
+                scopes = scopes_response.json()
                 
-                if not scope_exists:
-                    # Create client scope
-                    self.keycloak_admin.create_client_scope({
+                if not any(s['name'] == scope_name for s in scopes):
+                    scope_payload = {
                         "name": scope_name,
                         "protocol": "openid-connect",
                         "description": f"AgentCore Gateway scope: {scope_name}"
-                    })
+                    }
+                    admin_client.connection.raw_post(scopes_url, data=json.dumps(scope_payload))
                     logger.info(f"✅ Created scope: {scope_name}")
-                
-                # Get scope ID and attach to client
-                scopes = self.keycloak_admin.get_client_scopes()
-                scope_id = None
-                for scope in scopes:
-                    if scope.get('name') == scope_name:
-                        scope_id = scope['id']
-                        break
-                
-                if scope_id:
-                    # Add scope to client as default scope
-                    self.keycloak_admin.add_default_client_scope(client_uuid, scope_id)
-                    logger.info(f"✅ Attached scope '{scope_name}' to client")
-                
+
+                # 2️⃣ Look up the scope ID
+                scopes_response = admin_client.connection.raw_get(scopes_url)
+                scopes = scopes_response.json()
+                scope = next(s for s in scopes if s['name'] == scope_name)
+                scope_id = scope['id']
+
+                # 3️⃣ Attach as default client scope using raw API
+                attach_url = f"admin/realms/{self.realm_name}/clients/{client_uuid}/default-client-scopes/{scope_id}"
+                admin_client.connection.raw_put(attach_url, data='')
+                logger.info(f"✅ Attached default scope '{scope_name}' to client {client_uuid}")
+
         except Exception as e:
             logger.error(f"❌ Error setting up scopes: {e}")
             raise
-    
+        
     def get_discovery_url(self) -> str:
         """Get OpenID Connect discovery URL"""
         discovery_url = f"{self.keycloak_url}realms/{self.realm_name}/.well-known/openid-configuration"
@@ -163,7 +204,7 @@ class KeycloakGatewayAuth:
         """Setup OpenID Connect client for token operations"""
         try:
             self.oidc_client = KeycloakOpenID(
-                server_url=f"{self.keycloak_url}auth/",
+                server_url=self.keycloak_url,
                 realm_name=self.realm_name,
                 client_id=self.client_id,
                 client_secret_key=self.client_secret,
@@ -178,18 +219,25 @@ class KeycloakGatewayAuth:
     def get_access_token(self) -> str:
         """Get access token using client credentials grant"""
         try:
+            print(f"🔍 Debug: Attempting token request for client: {self.client_id}")
+            print(f"🔍 Debug: Realm: {self.realm_name}")
+            print(f"🔍 Debug: Keycloak URL: {self.keycloak_url}")
+            print(f"🔍 Debug: Client secret length: {len(self.client_secret) if self.client_secret else 'None'}")
+            
             token_response = self.oidc_client.token(grant_type="client_credentials")
             access_token = token_response["access_token"]
             logger.info(f"✅ Obtained access token: {access_token[:20]}...")
             return access_token
         except Exception as e:
             logger.error(f"❌ Error getting access token: {e}")
+            print(f"🔍 Debug: Token endpoint might be: {self.keycloak_url}realms/{self.realm_name}/protocol/openid-connect/token")
             raise
     
     def get_agentcore_auth_config(self) -> Dict:
         """Get AWS Bedrock AgentCore gateway authorizer configuration"""
         discovery_url = self.get_discovery_url()
-        
+        # This will create the agentcore auth config
+        # that will be used to set up the inbound authentication
         auth_config = {
             "customJWTAuthorizer": {
                 "discoveryUrl": discovery_url,
@@ -217,8 +265,10 @@ class KeycloakGatewayAuth:
             # Step 3: Create/get client and secret
             client_id, client_secret = self.get_or_create_client()
             
-            # Get client UUID for scope operations
-            clients = self.keycloak_admin.get_clients()
+            # Get client UUID for scope operations using raw API
+            clients_url = f"admin/realms/{self.realm_name}/clients"
+            clients_response = self.keycloak_admin.connection.raw_get(clients_url)
+            clients = clients_response.json()
             client_uuid = None
             for client in clients:
                 if client.get('clientId') == self.client_id:
@@ -286,8 +336,11 @@ def refresh_keycloak_token(config: Dict) -> Optional[str]:
         keycloak_auth = KeycloakGatewayAuth(config)
         keycloak_auth.setup_admin_client()
         
-        # Get existing client details
-        clients = keycloak_auth.keycloak_admin.get_clients()
+        # Get existing client details using raw API
+        keycloak_auth.get_realm_admin_client()
+        clients_url = f"admin/realms/{keycloak_auth.realm_name}/clients"
+        clients_response = keycloak_auth.keycloak_admin.connection.raw_get(clients_url)
+        clients = clients_response.json()
         client_uuid = None
         for client in clients:
             if client.get('clientId') == keycloak_auth.client_id:
@@ -298,8 +351,10 @@ def refresh_keycloak_token(config: Dict) -> Optional[str]:
             logger.error(f"Client {keycloak_auth.client_id} not found")
             return None
         
-        # Get client secret
-        keycloak_auth.client_secret = keycloak_auth.keycloak_admin.get_client_secrets(client_uuid)["value"]
+        # Get client secret using raw API
+        secret_url = f"admin/realms/{keycloak_auth.realm_name}/clients/{client_uuid}/client-secret"
+        secret_response = keycloak_auth.keycloak_admin.connection.raw_get(secret_url)
+        keycloak_auth.client_secret = secret_response.json()["value"]
         
         # Setup OIDC client and get new token
         keycloak_auth.setup_oidc_client()

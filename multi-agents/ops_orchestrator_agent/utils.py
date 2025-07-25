@@ -8,7 +8,7 @@ import os
 import time
 import logging
 import yaml
-from typing import Optional, Dict, Union
+from typing import Optional, Dict, Union, List
 from pathlib import Path
 
 # set a logger
@@ -133,9 +133,12 @@ def get_or_create_user_pool(cognito, USER_POOL_NAME, CREATE_USER_POOL: bool = Fa
     if CREATE_USER_POOL:
         created = cognito.create_user_pool(PoolName=USER_POOL_NAME)
         user_pool_id = created["UserPool"]["Id"]
-        user_pool_id_without_underscore_lc = user_pool_id.replace("_", "").lower()
+        # Create a valid domain name for Cognito (must be unique and follow DNS naming rules)
+        import time
+        timestamp = str(int(time.time()))
+        domain_name = f"mcp-server-{timestamp}"
         cognito.create_user_pool_domain(
-            Domain=user_pool_id_without_underscore_lc,
+            Domain=domain_name,
             UserPoolId=user_pool_id
         )
         print("Domain created as well")
@@ -182,8 +185,17 @@ def get_or_create_m2m_client(cognito, user_pool_id, CLIENT_NAME, RESOURCE_SERVER
 
 def get_token(user_pool_id: str, client_id: str, client_secret: str, scope_string: str, REGION: str) -> dict:
     try:
-        user_pool_id_without_underscore = user_pool_id.replace("_", "")
-        url = f"https://{user_pool_id_without_underscore}.auth.{REGION}.amazoncognito.com/oauth2/token"
+        # Get the actual domain name for the user pool
+        cognito = boto3.client("cognito-idp", region_name=REGION)
+        user_pool_response = cognito.describe_user_pool(UserPoolId=user_pool_id)
+        domain = user_pool_response.get('UserPool', {}).get('Domain')
+        
+        if not domain:
+            # Fallback to the old method if no domain is found
+            user_pool_id_without_underscore = user_pool_id.replace("_", "").lower()
+            url = f"https://{user_pool_id_without_underscore}.auth.{REGION}.amazoncognito.com/oauth2/token"
+        else:
+            url = f"https://{domain}.auth.{REGION}.amazoncognito.com/oauth2/token"
         headers = {"Content-Type": "application/x-www-form-urlencoded"}
         data = {
             "grant_type": "client_credentials",
@@ -710,7 +722,7 @@ def delete_all_gateways(gateway_client):
     except Exception as e:
         print(e)
 
-def create_gateway_target(target_type, gateway_id, target_name, target_descr, target_config):
+def create_gateway_target(target_type, gateway_id, target_name, target_descr, target_config, oauth_provider_arn, oauth_scopes):
     """
     Creates a gateway target for either Lambda or OpenAPI.
     
@@ -733,23 +745,29 @@ def create_gateway_target(target_type, gateway_id, target_name, target_descr, ta
             ]
         print(f"Going to use the smithy/lambda type target credential information: {CREDENTIAL_INFO}")
     elif target_type in ['openapi']:
-        # TO DO: To be implemented for the resolution agent
-        CREDENTIAL_INFO = [
-            {
-                "credentialProviderType" : "API_KEY", 
-                "credentialProvider": {
-                    "apiKeyCredentialProvider": {
-                            "credentialParameterName": "api_key", # Replace this with the name of the api key name expected by the respective API provider. For passing token in the header, use "Authorization"
-                            # This will be implemented through some post processing which will
-                            # be used by the agent to access a third party API key
-                            "providerArn": '',
-                            "credentialLocation":"QUERY_PARAMETER", # Location of api key. Possible values are "HEADER" and "QUERY_PARAMETER".
-                            #"credentialPrefix": " " # Prefix for the token. Valid values are "Basic". Applies only for tokens.
+        # Enhanced OpenAPI target support with OAuth2 for GitHub and Jira APIs
+        # Check if OAuth2 provider ARN is provided in target_config
+        
+        if oauth_provider_arn:
+            # Use OAuth2 authentication for external APIs like GitHub/Jira
+            CREDENTIAL_INFO = [
+                {
+                    "credentialProviderType": "OAUTH",
+                    "credentialProvider": {
+                        "oauthCredentialProvider": {
+                            "providerArn": oauth_provider_arn,
+                            "scopes": oauth_scopes
+                        }
                     }
                 }
-            }
-        ]
-        print(f"Going to use the openAPI type target credential information: {CREDENTIAL_INFO}")
+            ]
+            print(f"Going to use OAuth2 credential provider for openAPI target: {oauth_provider_arn}")
+        else:
+            # Use GATEWAY_IAM_ROLE when no OAuth provider is specified
+            CREDENTIAL_INFO = [
+                {"credentialProviderType": "GATEWAY_IAM_ROLE"}
+            ]
+            print(f"Going to use GATEWAY_IAM_ROLE for openAPI target without OAuth: {CREDENTIAL_INFO}")
     # Create the agentcore gateway target using the gateway ID, 
     # the target name, target description, the configuration and the credential provider
     # config. For this, we will use the "GATEWAY_IAM_ROLE". This is for those targets that
@@ -790,11 +808,11 @@ def upload_smithy_to_s3(smithy_file_path, bucket_name, object_key):
         s3_client.upload_file(smithy_file_path, bucket_name, object_key)
         
         s3_uri = f"s3://{bucket_name}/{object_key}"
-        print(f"✅ Successfully uploaded Smithy file to: {s3_uri}")
+        print(f"✅ Successfully uploaded file to: {s3_uri}")
         return s3_uri
         
     except Exception as e:
-        print(f"❌ Failed to upload Smithy file to S3: {e}")
+        print(f"❌ Failed to upload file to S3: {e}")
         raise
 
 def create_target_config(target_info):
@@ -828,6 +846,7 @@ def create_target_config(target_info):
         }
     
     elif target_type == 'openapi':
+        print(f"Target type is OpenAPI, going to create the openAPI s3 schema for this")
         openapi_config = target_info.get('openapi', {})
         s3_uri = openapi_config.get('s3_uri')
         
@@ -1051,25 +1070,318 @@ def create_targets_from_config(gateway_id, gateway_config, bucket_name):
                 continue
                 
     elif target_type == 'openapi':
-        # Process configured targets (legacy support for list-based targets)
-        target_list = targets_config if isinstance(targets_config, list) else []
-        for target in target_list:
-            try:
-                target_name = target.get('name', f"Target_{len(created_targets)}")
-                target_descr = target.get('description', f"Gateway target for {target.get('type')}")
-                
-                print(f"Creating target: {target_name} ({target.get('type')})")
-                
-                target_config = create_target_config(target)
-                target_id = create_gateway_target(target_type, gateway_id, target_name, target_descr, target_config)
-                created_targets.append({
-                    'id': target_id,
-                    'name': target_name,
-                    'type': target.get('type')
-                })
-                print(f"✅ Created {target.get('type')} target: {target_name} (ID: {target_id})")
-            except Exception as e:
-                print(f"❌ Failed to create target {target.get('name', 'Unknown')}: {e}")
+        # Handle OpenAPI targets with OAuth2 support for GitHub and Jira
+        # Check if targets_config is a list (direct config) or dict (nested config)
+        if isinstance(targets_config, list):
+            openapi_configs = targets_config
+        else:
+            openapi_configs = targets_config.get('openapi', [])
+        
+        # Loop through each target configuration
+        for target in openapi_configs:
+            created_target = create_openapi_oauth_target(
+                target=target,
+                gateway_id=gateway_id,
+                bucket_name=bucket_name
+            )
+            if created_target:
+                created_targets.append(created_target)
+    
+    return created_targets
+
+def create_openapi_oauth_target(target: Dict, gateway_id: str, bucket_name: str) -> Optional[Dict]:
+    """
+    Create a single OpenAPI OAuth target from configuration.
+    
+    Args:
+        target: Target configuration dictionary
+        gateway_id: Gateway identifier
+        bucket_name: S3 bucket name for spec upload
+    
+    Returns:
+        Created target information dict or None if failed
+    """
+    try:
+        target_name = target.get('name', f"OpenAPITarget_{int(time.time())}")
+        spec_file = target.get('spec_file')
+        api_type = target.get('api_type', 'unknown')
+        scopes = target.get('scopes', [])
+        
+        print(f"🔧 Setting up {target_name} ({api_type.upper()}) OpenAPI OAuth target...")
+        
+        # Check if spec file exists
+        if not spec_file or not os.path.exists(spec_file):
+            print(f"⚠️  OpenAPI spec file not found: {spec_file}")
+            return None
+        
+        # Upload OpenAPI spec to S3
+        object_key = f"openapi-specs/{api_type}_api_spec.yaml"
+        s3_uri = upload_smithy_to_s3(spec_file, bucket_name, object_key)
+        
+        # Create OAuth2 credential provider based on API type
+        provider_arn = None
+        try:
+            if api_type.lower() == 'github':
+                provider_arn = setup_github_oauth2_provider()
+            elif api_type.lower() == 'jira':
+                provider_arn = setup_jira_oauth2_provider()
+            else:
+                print(f"❌ Unsupported API type: {api_type}")
+                return None
+        except ValueError as e:
+            print(f"⚠️  Skipping {target_name} - {e}")
+            return None
+        
+        # Create target configuration with OAuth provider ARN
+        target_config = {
+            "mcp": {
+                "openApiSchema": {
+                    "s3": {
+                        "uri": s3_uri
+                    }
+                }
+            }
+        }
+        
+        # Create the target
+        target_id = create_gateway_target(
+            target_type='openapi',
+            gateway_id=gateway_id,
+            target_name=target_name,
+            target_descr=f"OpenAPI OAuth target for {api_type.upper()} APIs",
+            target_config=target_config,
+            oauth_provider_arn=provider_arn,
+            oauth_scopes=scopes
+        )
+        
+        created_target = {
+            'id': target_id,
+            'name': target_name,
+            'type': 'openapi_oauth',
+            's3_uri': s3_uri,
+            'provider_arn': provider_arn,
+            'api_type': api_type,
+            'spec_file': spec_file
+        }
+        
+        print(f"✅ Created {api_type.upper()} OpenAPI OAuth target: {target_name} (ID: {target_id})")
+        return created_target
+        
+    except Exception as e:
+        print(f"❌ Failed to create OpenAPI OAuth target {target.get('name', 'Unknown')}: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+def create_oauth2_credential_provider(provider_name: str, auth_config: Dict) -> str:
+    """
+    Create an OAuth2 credential provider for external APIs.
+    
+    Args:
+        provider_name: Name for the credential provider
+        auth_config: Dictionary containing OAuth2 configuration:
+            - client_id: OAuth client ID
+            - client_secret: OAuth client secret
+            - auth_endpoint: Authorization endpoint URL
+            - token_endpoint: Token endpoint URL
+            - issuer: Issuer URL/domain
+            - response_types: List of response types (default: ["code"])
+    
+    Returns:
+        The credential provider ARN
+    """
+    from constants import REGION_NAME
+    from botocore.config import Config
+    
+    sdk_config = Config(
+        region_name=REGION_NAME,
+        retries={"max_attempts": 2, "mode": "standard"},
+    )
+
+    acps = boto3.client(
+        service_name="bedrock-agentcore-control",
+        config=sdk_config,
+    )
+
+    provider_config = {
+        "customOauth2ProviderConfig": {
+            "oauthDiscovery": {
+                "authorizationServerMetadata": {
+                    "issuer": auth_config.get("issuer"),
+                    "authorizationEndpoint": auth_config.get("auth_endpoint"),
+                    "tokenEndpoint": auth_config.get("token_endpoint"),
+                    "responseTypes": auth_config.get("response_types", ["code"])
+                }
+            },
+            "clientId": auth_config.get("client_id"),
+            "clientSecret": auth_config.get("client_secret")
+        }
+    }
+
+    try:
+        response = acps.create_oauth2_credential_provider(
+            name=provider_name,
+            credentialProviderVendor="CustomOauth2",
+            oauth2ProviderConfigInput=provider_config
+        )
+        
+        credential_provider_arn = response['credentialProviderArn']
+        print(f"✅ Created OAuth2 credential provider: {provider_name}")
+        print(f"Provider ARN: {credential_provider_arn}")
+        return credential_provider_arn
+        
+    except Exception as e:
+        print(f"❌ Failed to create OAuth2 credential provider {provider_name}: {e}")
+        raise
+
+def setup_github_oauth2_provider() -> str:
+    """
+    Setup GitHub OAuth2 credential provider using environment variables.
+    
+    Required environment variables:
+    - GITHUB_CLIENT_ID: GitHub OAuth app client ID
+    - GITHUB_CLIENT_SECRET: GitHub OAuth app client secret
+    
+    Returns:
+        The GitHub credential provider ARN
+    """
+    github_client_id = os.environ.get('GITHUB_CLIENT_ID')
+    github_client_secret = os.environ.get('GITHUB_CLIENT_SECRET')
+    
+    if not github_client_id or not github_client_secret:
+        raise ValueError("GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET environment variables are required")
+    
+    auth_config = {
+        "client_id": github_client_id,
+        "client_secret": github_client_secret,
+        "auth_endpoint": "https://github.com/login/oauth/authorize",
+        "token_endpoint": "https://github.com/login/oauth/access_token",
+        "issuer": "https://github.com",
+        "response_types": ["code"]
+    }
+    
+    return create_oauth2_credential_provider("GitHubnew", auth_config)
+
+def setup_jira_oauth2_provider() -> str:
+    """
+    Setup Jira OAuth2 credential provider using environment variables.
+    
+    Required environment variables:
+    - JIRA_DOMAIN: Your Jira domain (e.g., 'yourcompany.atlassian.net')
+    - JIRA_CLIENT_ID: Jira OAuth app client ID  
+    - JIRA_CLIENT_SECRET: Jira OAuth app client secret
+    
+    Returns:
+        The Jira credential provider ARN
+    """
+    jira_domain = os.environ.get('JIRA_DOMAIN')
+    jira_client_id = os.environ.get('JIRA_CLIENT_ID')
+    jira_client_secret = os.environ.get('JIRA_CLIENT_SECRET')
+    
+    if not all([jira_domain, jira_client_id, jira_client_secret]):
+        raise ValueError("JIRA_DOMAIN, JIRA_CLIENT_ID, and JIRA_CLIENT_SECRET environment variables are required")
+    
+    # Ensure domain format is correct (without https://)
+    if jira_domain.startswith('https://'):
+        jira_domain = jira_domain[8:]
+    elif jira_domain.startswith('http://'):
+        jira_domain = jira_domain[7:]
+    
+    auth_config = {
+        "client_id": jira_client_id,
+        "client_secret": jira_client_secret,
+        "auth_endpoint": f"https://{jira_domain}/oauth/authorize",
+        "token_endpoint": f"https://{jira_domain}/oauth/token",
+        "issuer": f"https://{jira_domain}",
+        "response_types": ["code"]
+    }
+    
+    return create_oauth2_credential_provider("Jiranew", auth_config)
+
+def create_openapi_targets_with_oauth(gateway_id: str, bucket_name: str) -> List[Dict]:
+    """
+    Create OpenAPI targets for GitHub and Jira with OAuth2 authentication.
+    
+    Args:
+        gateway_id: Gateway identifier
+        bucket_name: S3 bucket for storing OpenAPI specs
+    
+    Returns:
+        List of created target information
+    """
+    created_targets = []
+    
+    # Configuration for API providers
+    api_configs = {
+        "github": {
+            "spec_file": "tools/github_api_spec.yaml",
+            "target_name": "GitHubAPITarget",
+            "scopes": ["repo", "issues", "pull_requests"],
+            "setup_provider": setup_github_oauth2_provider
+        },
+        "jira": {
+            "spec_file": "tools/jira_api_spec.yaml", 
+            "target_name": "JiraAPITarget",
+            "scopes": ["read:jira-work", "write:jira-work"],
+            "setup_provider": setup_jira_oauth2_provider
+        }
+    }
+    
+    for api_name, config in api_configs.items():
+        try:
+            print(f"\n🔧 Setting up {api_name.upper()} OpenAPI OAuth target...")
+            
+            # Check if spec file exists
+            if not os.path.exists(config["spec_file"]):
+                print(f"⚠️  OpenAPI spec file not found: {config['spec_file']}")
                 continue
+            
+            # Upload OpenAPI spec to S3
+            object_key = f"openapi-specs/{api_name}_api_spec.yaml"
+            s3_uri = upload_smithy_to_s3(config["spec_file"], bucket_name, object_key)
+            
+            # Create OAuth2 credential provider
+            try:
+                provider_arn = config["setup_provider"]()
+            except ValueError as e:
+                print(f"⚠️  Skipping {api_name.upper()} - {e}")
+                continue
+            
+            # Create target configuration with OAuth provider ARN
+            target_config = {
+                "mcp": {
+                    "openApiSchema": {
+                        "s3": {
+                            "uri": s3_uri
+                        }
+                    }
+                }
+            }
+            
+            # Create the target
+            target_id = create_gateway_target(
+                target_type='openapi',
+                gateway_id=gateway_id,
+                target_name=config["target_name"],
+                target_descr=f"OpenAPI OAuth target for {api_name.upper()} APIs",
+                target_config=target_config
+            )
+            
+            created_targets.append({
+                'id': target_id,
+                'name': config["target_name"],
+                'type': 'openapi_oauth',
+                's3_uri': s3_uri,
+                'provider_arn': provider_arn,
+                'api': api_name
+            })
+            
+            print(f"✅ Created {api_name.upper()} OpenAPI OAuth target: {config['target_name']} (ID: {target_id})")
+            
+        except Exception as e:
+            print(f"❌ Failed to create {api_name.upper()} OAuth target: {e}")
+            import traceback
+            traceback.print_exc()
+            continue
     
     return created_targets

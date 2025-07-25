@@ -22,9 +22,18 @@ agent_information:
       # based on the inference parameters that are supported
       temperature: 0.1
       max_tokens: 2048
-    # MEMORY CONFIGURATION FOR THE MONITORING AGENT
-    # If your memory is already created, please provide the credentials here
-    use_existing_memory: false
+    # There are memories for all of the agents that will be used in this sample
+    # there are three agents with different memory storage strategies and all will be used
+    memories:
+      lead_agent:
+        use_existing: true
+        memory_id: OpsAgent_mem_1753364538-TvqIKh3jxd
+      chat_ops_agent:
+        use_existing: true
+        memory_id: OpsAgent_chat_1753364705-2bbQkyHyVO
+      ticket_agent:
+        use_existing: true
+        memory_id: TicketCreation_chat_1753364881-Dq80O2DlHQ
     memory_credentials:
       # fetch this from your AWS console
       id: 
@@ -42,37 +51,24 @@ agent_information:
     # Gateway configuration for the monitoring agent
     # Gateway configuration with Keycloak
     gateway_config:
-      name: "OpsOrchestratorGatewayKeycloak"
-      
-      # Keycloak authentication configuration (replaces cognito)
+      name: "ops-gw"
+      # Cognito authentication configuration
       inbound_auth:
-        keycloak:
-          # Keycloak server URL
-          url: "${KEYCLOAK_URL}"  # e.g., "http://localhost:8080/" or "https://keycloak.example.com/"
-          
-          # Admin credentials for realm/client management
-          admin_user: "${KEYCLOAK_ADMIN_USER}"  # e.g., "admin"
-          admin_pass: "${KEYCLOAK_ADMIN_PASS}"  # e.g., "admin"
-          
-          # Realm configuration
-          realm_name: "ops-orchestrator-realm"
-          create_realm: true  # Set to false if realm already exists
-          
-          # Client configuration
-          client_id: "ops-orchestrator-gateway-client"
-          
-          # Scopes for the gateway
+        type: "cognito"
+        cognito:
+          create_user_pool: true
+          user_pool_name: "agentcore-gateway-ops-new"
+          resource_server_id: "ops_orchestrator_agent"
+          resource_server_name: "agentcore-gateway-ops"
+          client_name: "agentcore-client-ops"
           scopes:
-            - "gateway:read"
-            - "gateway:write"
-            - "ops:manage"
-            - "incidents:create"
-            - "chatops:access"
-      
-      # Gateway credentials configuration
+            - ScopeName: "gateway:read"
+              ScopeDescription: "Read access"
+            - ScopeName: "gateway:write"
+              ScopeDescription: "Write access"
       credentials:
+        use_cognito: true        # must be a YAML boolean
         use_existing: false
-        use_keycloak: true  # Enable Keycloak authentication
         create_new_access_token: false
         gateway_id: null
         mcp_url: null
@@ -85,8 +81,11 @@ agent_information:
       
       # Target configurations
       targets:
-        - name: "jira-integration"
-          type: "http"
+        - name: "jira-integration-new"
+          # Absolute path to your openAPI spec file
+          spec_file: /Users/madhurpt/Desktop/genesis/multi-agents/ops_orchestrator_agent/tools/jira_api_spec.yaml
+          type: "openapi"
+          api_type: "jira"
           endpoint: "https://your-jira-instance.atlassian.net"
           authentication:
             type: "basic"
@@ -94,24 +93,19 @@ agent_information:
               username: "${JIRA_USERNAME}"
               password: "${JIRA_API_TOKEN}"
         
-        - name: "pagerduty-integration"
-          type: "http"
-          endpoint: "https://api.pagerduty.com"
-          authentication:
-            type: "bearer"
-            credentials:
-              token: "${PAGERDUTY_API_TOKEN}"
+        # - name: "slack-integration"
+        #   type: "openapi"
+        #   endpoint: "https://slack.com/api"
+        #   authentication:
+        #     type: "bearer"
+        #     credentials:
+        #       token: "${SLACK_BOT_TOKEN}"
         
-        - name: "slack-integration"
-          type: "http"
-          endpoint: "https://slack.com/api"
-          authentication:
-            type: "bearer"
-            credentials:
-              token: "${SLACK_BOT_TOKEN}"
-        
-        - name: "github-integration"
-          type: "http"
+        - name: "github-integration-new"
+          # Absolute path to your openAPI spec file
+          spec_file: /Users/madhurpt/Desktop/genesis/multi-agents/ops_orchestrator_agent/tools/github_api_spec.yaml
+          type: "openapi"
+          api_type: "github"
           endpoint: "https://api.github.com"
           authentication:
             type: "bearer"
@@ -131,26 +125,16 @@ agent_information:
       # as endpoints to call through the tool gateway primitive
       # These can be json files for now are supported, can be lambda functions as well
       # This represents the target type for the gateway
-      existing_target: false
+      existing_target: true
       target_name: OpsTarget
-      target_type:
+      target_type: openapi
       # IAM Role Configuration
       # this is the IAM role that will be attached to this gateway
       iam_role:
         execution_role_arn: "arn:aws:iam::ACCOUNT_ID:role/GenesisGatewayExecutionRole"
-      # Inbound Authentication Configuration
-      # COGNITO SETUP but this can be okta, keycloak, etc.
-      inbound_auth:
-        type: 
-        set_up_keycloack: yes
       # This is if the agent is already configured and needs to be invokeds
       agent_arn: 
       # set this to false if the agent arn is provided from above
       launch_agentcore_runtime: true
       # this is the runtime execution role for the agent that will be used 
       runtime_exec_role: arn:aws:iam::218208277580:role/service-role/Amazon-Bedrock-IAM-Role-20240102T112809
-      # Credentials storage configuration
-      credentials:
-        storage_path:
-        use_existing: false
-        create_new_access_token: true  # Enable automatic token refresh on 401 errors
