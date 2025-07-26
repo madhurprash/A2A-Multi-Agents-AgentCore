@@ -210,49 +210,415 @@ Key configuration sections include:
 
 ## Deployment Guide
 
-### Local Development Deployment
+This comprehensive guide walks you through deploying both agents, configuring their runtime environments, and running the interactive A2A Streamlit demo.
 
-For development and testing, both agents can run locally while still leveraging AgentCore primitives:
+### Prerequisites Setup
+
+Before starting deployment, ensure you have:
+
+**AWS Account Setup**:
+- AWS CLI configured with appropriate permissions
+- Access to AWS Bedrock AgentCore services
+- IAM permissions for: `bedrock:*`, `bedrock-agentcore:*`, `s3:*`, `lambda:*`, `iam:*`, `cognito-idp:*`, `secretsmanager:*`, `logs:*`, `cloudwatch:*`
+
+**Development Environment**:
+```bash
+# Install Python dependencies
+pip install boto3 pyyaml python-keycloak requests openai anthropic streamlit
+pip install strands bedrock-agentcore-starter-toolkit python-dotenv
+pip install opentelemetry-distro[otlp]
+```
+
+**Service Credentials**:
+Create a `.env` file with your service credentials:
+```bash
+# AWS Configuration
+export AWS_REGION="us-west-2"
+export AWS_ACCOUNT_ID="your-account-id"
+
+# JIRA Integration
+export JIRA_USERNAME="your-jira-username"
+export JIRA_API_TOKEN="your-jira-api-token"
+export JIRA_DOMAIN="yourcompany.atlassian.net"
+
+# GitHub Integration
+export GITHUB_TOKEN="ghp_your_github_token"
+
+# Optional: Enhanced OAuth integrations
+export GITHUB_CLIENT_ID="your-oauth-client-id"
+export GITHUB_CLIENT_SECRET="your-oauth-client-secret"
+export JIRA_CLIENT_ID="your-jira-oauth-client-id"
+export JIRA_CLIENT_SECRET="your-jira-oauth-client-secret"
+```
+
+### Step 1: Deploy Monitoring Agent
+
+The monitoring agent provides AWS infrastructure monitoring capabilities using Strands SDK and Bedrock AgentCore.
+
+**1.1 Configure IAM Execution Role**
+
+Create an IAM role with the following trust policy:
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "Service": [
+          "bedrock.amazonaws.com",
+          "bedrock-agentcore.amazonaws.com"
+        ]
+      },
+      "Action": "sts:AssumeRole"
+    }
+  ]
+}
+```
+
+Attach policies for:
+- Amazon Bedrock access
+- CloudWatch logs/metrics access
+- Any other AWS services the agent needs
+
+**1.2 Configure Agent Settings**
+
+Update `multi-agents/monitoring_agent/config.yaml`:
+```yaml
+agent_information:
+  monitoring_agent_model_info:
+    gateway_config:
+      runtime_exec_role: "arn:aws:iam::YOUR-ACCOUNT:role/YOUR-ROLE-NAME"
+      launch_agentcore_runtime: true
+```
+
+**1.3 Deploy to AgentCore Runtime**
 
 ```bash
-# Install dependencies
-cd /path/to/genesis
-pip install -e .
-
-# Configure environment variables
-export AWS_DEFAULT_REGION=us-west-2
-# ... other environment variables
-
-# Start Monitoring Agent
 cd multi-agents/monitoring_agent
-python monitoring_agent.py
 
-# Start Ops Orchestrator Agent (in another terminal)
-cd multi-agents/ops_orchestrator_agent
-python ops_orchestrator_multi_agent.py interactive
+# Deploy with observability enabled
+./run_with_observability.py monitoring_agent.py
 ```
 
-### Production AgentCore Runtime Deployment
+This will:
+- Initialize the Runtime() instance
+- Configure with your entrypoint and execution role
+- Launch to AWS and monitor until READY status
+- Provide the agent ARN for invocation
 
-For production deployment using managed AgentCore runtime:
-
-1. **Configure Runtime Settings**: Set `launch_agentcore_runtime: true` in your config files
-2. **Set Execution Roles**: Configure appropriate IAM execution roles with necessary permissions
-3. **Deploy Agents**: The agents automatically handle Docker containerization, ECR repository creation, and runtime provisioning
+**1.4 Test Monitoring Agent**
 
 ```bash
-# Monitoring Agent with Runtime
-python monitoring_agent.py  # Automatically deploys to AgentCore Runtime
-
-# Ops Orchestrator with Runtime  
-python ops_orchestrator_multi_agent.py runtime
+# Test using Runtime instance
+python -c "
+from bedrock_agentcore_starter_toolkit import Runtime
+runtime = Runtime()
+response = runtime.invoke({'prompt': 'Hello monitoring agent! What can you do?'})
+print(response)
+"
 ```
 
-### Configuration Management
+**1.5 Record Agent ARN**
 
-**Memory Persistence**: Configure memory IDs in config files to reuse existing memories across deployments
-**Credential Management**: Use AWS Secrets Manager or similar for production credential management
-**Environment-Specific Configs**: Maintain separate config files for different environments (dev, staging, prod)
+Note the monitoring agent ARN from the deployment output - you'll need it for A2A configuration:
+```
+Monitoring Agent ARN: arn:aws:bedrock-agentcore:us-west-2:ACCOUNT:runtime/monitoring_agent-XXXXX
+```
+
+### Step 2: Deploy Operations Orchestrator Agent
+
+The operations orchestrator provides multi-agent incident management and coordination capabilities.
+
+**2.1 Configure Gateway and Authentication**
+
+Update `multi-agents/ops_orchestrator_agent/config.yaml` with absolute paths and your settings:
+
+```yaml
+general:
+  name: "ops-orchestrator-agent"
+  description: "Multi-agent system for operations orchestration"
+
+agent_information:
+  ops_orchestrator_agent_model_info: 
+    model_id: gpt-4o-2024-08-06
+    inference_parameters:
+      temperature: 0.1
+      max_tokens: 2048
+    
+    # Memory configuration - set use_existing: true after first run
+    memories:
+      lead_agent:
+        use_existing: false
+        memory_id: null
+      chat_ops_agent:
+        use_existing: false
+        memory_id: null
+      ticket_agent:
+        use_existing: false
+        memory_id: null
+    
+    # Gateway configuration
+    gateway_config:
+      name: "ops-gw"
+      
+      # Cognito authentication (recommended)
+      inbound_auth:
+        type: "cognito"
+        cognito:
+          create_user_pool: true
+          user_pool_name: "agentcore-gateway-ops"
+          resource_server_id: "ops_orchestrator_agent"
+          resource_server_name: "agentcore-gateway-ops"
+          client_name: "agentcore-client-ops"
+          scopes:
+            - ScopeName: "gateway:read"
+              ScopeDescription: "Read access"
+            - ScopeName: "gateway:write"
+              ScopeDescription: "Write access"
+      
+      credentials:
+        use_cognito: true
+        use_existing: false
+        create_new_access_token: false
+        gateway_id: null
+        mcp_url: null
+        access_token: null
+      
+      # S3 bucket for API specifications
+      bucket_name: "ops-orchestrator-gateway-bucket"
+      
+      # Service integrations with ABSOLUTE PATHS
+      targets:
+        - name: "jira-integration"
+          spec_file: /absolute/path/to/multi-agents/ops_orchestrator_agent/tools/jira_api_spec.yaml
+          type: "openapi"
+          api_type: "jira"
+          endpoint: "https://your-jira-instance.atlassian.net"
+          authentication:
+            type: "basic"
+            credentials:
+              username: "${JIRA_USERNAME}"
+              password: "${JIRA_API_TOKEN}"
+        
+        - name: "github-integration" 
+          spec_file: /absolute/path/to/multi-agents/ops_orchestrator_agent/tools/github_api_spec.yaml
+          type: "openapi"
+          api_type: "github"
+          endpoint: "https://api.github.com"
+          authentication:
+            type: "bearer"
+            credentials:
+              token: "${GITHUB_TOKEN}"
+```
+
+**IMPORTANT**: Update the `spec_file` paths to use absolute paths:
+```bash
+# Get your current directory
+pwd
+# Update paths in config.yaml to match your actual file locations
+```
+
+**2.2 Configure and Launch Runtime**
+
+```bash
+cd multi-agents/ops_orchestrator_agent
+
+# Configure and launch the agent runtime
+python ops_orchestrator_runtime.py --configure --launch
+```
+
+This process will:
+- Set up AWS Bedrock AgentCore memory for each of the three sub-agents
+- Create Cognito user pool for authentication
+- Set up MCP gateway with JIRA and GitHub integrations
+- Deploy the multi-agent system to AgentCore runtime
+
+**2.3 Test Operations Orchestrator**
+
+```bash
+# Navigate to parent directory and test invocation
+cd ..
+python invoke_agent.py
+```
+
+**2.4 Record Agent ARN**
+
+Note the operations orchestrator ARN from the deployment output:
+```
+Ops Orchestrator ARN: arn:aws:bedrock-agentcore:us-west-2:ACCOUNT:runtime/ops_orchestrator_multi_agent-XXXXX
+```
+
+### Step 3: Configure A2A Communication
+
+Update the agent ARNs in the A2A communication system:
+
+**3.1 Update A2A Agent Registry**
+
+Edit `A2A/a2a_communication_compliant.py` and update the agent ARNs:
+```python
+# Update with your actual agent ARNs from Steps 1 and 2
+self.agents = {
+    "monitoring_agent": {
+        "arn": "arn:aws:bedrock-agentcore:us-west-2:YOUR-ACCOUNT:runtime/monitoring_agent-YOUR-ID",
+        "card": self._create_monitoring_agent_card()
+    },
+    "ops_orchestrator": {
+        "arn": "arn:aws:bedrock-agentcore:us-west-2:YOUR-ACCOUNT:runtime/ops_orchestrator_multi_agent-YOUR-ID",
+        "card": self._create_ops_orchestrator_card()
+    }
+}
+```
+
+**3.2 Test A2A Communication**
+
+```bash
+# Test basic A2A functionality
+python A2A/a2a_communication_compliant.py --demo
+
+# Test health check
+python A2A/a2a_communication_compliant.py --health
+
+# Test individual agent communication
+python A2A/a2a_communication_compliant.py --create-task monitoring_agent "Check CloudWatch alarms for EC2 instances"
+```
+
+### Step 4: Launch Streamlit Demo
+
+Now launch the interactive Streamlit demo that showcases the complete A2A system:
+
+**4.1 Install Streamlit Dependencies**
+
+```bash
+# Install Streamlit-specific requirements
+pip install -r requirements-streamlit.txt
+```
+
+**4.2 Configure Environment**
+
+Ensure your environment variables are set:
+```bash
+source .env  # or export your environment variables
+```
+
+**4.3 Launch Streamlit App**
+
+```bash
+# Launch the interactive A2A demo
+streamlit run streamlit_app.py
+```
+
+**4.4 Access the Demo**
+
+Open your browser to `http://localhost:8501` and explore:
+
+- **🏠 Home Page**: System architecture overview and real-time status
+- **🤖 Agents Page**: Detailed agent capabilities and health monitoring
+- **💬 Chat Page**: Interactive communication with both agents and coordinated incident response
+
+### Step 5: Test Complete Workflow
+
+**5.1 Basic Agent Communication**
+1. Go to the Chat page in Streamlit
+2. Select "monitoring_agent"
+3. Send: "Analyze CloudWatch logs for Lambda functions and identify any errors"
+4. Observe the streaming response and task lifecycle
+
+**5.2 Coordinated Incident Response**
+1. In the chat sidebar, click "🚨 Demo Incident Response"
+2. Watch both agents coordinate:
+   - Monitoring agent analyzes the incident
+   - Ops orchestrator creates tickets and notifications
+3. View the complete A2A task tracking
+
+**5.3 Agent Health Monitoring**
+1. Go to the Agents page
+2. Click "🏥 Run Health Check"
+3. Verify both agents are operational
+4. Explore detailed agent capabilities
+
+### Production Deployment Considerations
+
+**Memory Persistence**: After first deployment, update config files to reuse existing memories:
+```yaml
+memories:
+  lead_agent:
+    use_existing: true
+    memory_id: "OpsAgent_mem_1234567890-abcdef"  # From deployment logs
+```
+
+**Credential Management**: 
+- Use AWS Secrets Manager for production credentials
+- Implement proper credential rotation
+- Use IAM roles with least-privilege permissions
+
+**Monitoring and Observability**:
+- Enable OpenTelemetry for detailed tracing
+- Set up CloudWatch alarms for agent health
+- Monitor A2A task success rates and response times
+
+**Environment-Specific Configs**: 
+- Maintain separate config files for dev/staging/prod
+- Use different S3 buckets and memory instances per environment
+- Implement proper CI/CD pipelines for agent updates
+
+### Troubleshooting Common Issues
+
+**Agent Runtime Deployment Fails**:
+- Check IAM role permissions and trust policy
+- Verify execution role has required permissions for ECR, Bedrock, etc.
+- Check CloudWatch logs for detailed error messages
+
+**A2A Communication Fails**:
+- Verify agent ARNs are correct in `a2a_communication_compliant.py`
+- Check AWS credentials and region configuration
+- Ensure agents are in READY state before testing
+
+**Streamlit App Issues**:
+- Verify all dependencies are installed via `requirements-streamlit.txt`
+- Check that A2A service can connect to agent runtimes
+- Ensure environment variables are properly exported
+
+**Gateway/Authentication Issues**:
+- Check Cognito user pool configuration
+- Verify API credentials for JIRA/GitHub are valid
+- Ensure all absolute paths in config.yaml are correct
+
+### Success Indicators
+
+When properly deployed, you should see:
+
+**Monitoring Agent**:
+```
+✅ Runtime configured successfully
+✅ Runtime launched successfully  
+✅ Agent status: READY
+✅ Agent ARN: arn:aws:bedrock-agentcore:...
+```
+
+**Operations Orchestrator**:
+```
+✅ Created memory for lead_agent: OpsAgent_mem_xxx
+✅ Created memory for chat_ops_agent: OpsAgent_chat_xxx  
+✅ Created memory for ticket_agent: TicketCreation_chat_xxx
+✅ Gateway setup completed with URL: https://xxxxx
+✅ Created 2 targets successfully
+🚀 Ops orchestrator multi-agent system ready!
+```
+
+**A2A System**:
+```
+🤖 A2A Protocol Service initialized
+📊 Registered Agents: ['monitoring_agent', 'ops_orchestrator']
+🆔 Session ID: a2a_session_...
+```
+
+**Streamlit Demo**:
+- Home page shows system architecture and real-time metrics
+- Agents page displays both agents with health status
+- Chat page enables interactive communication and incident response
+
+Your complete A2A Multi-Agent Communication system is now ready for production use! 🚀
 
 ## Usage Examples
 

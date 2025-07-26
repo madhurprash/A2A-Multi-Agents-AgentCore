@@ -24,21 +24,33 @@ import time
 import boto3
 import asyncio
 import argparse
+from enum import Enum
 from datetime import datetime
 from dotenv import load_dotenv
-from typing import Dict, Any, Optional, List
-from enum import Enum
 from botocore.exceptions import ClientError
+from typing import Dict, Any, Optional, List
 
 # Load environment variables
 load_dotenv()
 
 # Import the existing invoke_agent functionality
-sys.path.append(os.path.join(os.path.dirname(__file__), 'multi-agents'))
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'multi-agents'))
+# This is the function that invokes the agents
 from invoke_agent import invoke_monitoring_agent
 
+# Constants that are defined to bring in the agent skills
+AGENTIC_SKILLS: str = os.path.join(os.path.dirname(__file__), "agentic_cards")
+INCIDENT_AGENT_SKILLS: str = os.path.join(AGENTIC_SKILLS, 'operations_skills.json')
+MONITORING_AGENT_SKILLS: str = os.path.join(AGENTIC_SKILLS, 'monitoring_skills.json')
+
 # A2A Protocol Enums and Types
+# This is the task state and the task state
+# consists of various fields
 class TaskState(Enum):
+    """
+    This state consists of parameters that are required while maintaining the 
+    state during the agent implementation
+    """
     SUBMITTED = "submitted"
     WORKING = "working"
     INPUT_REQUIRED = "input-required"
@@ -71,6 +83,8 @@ class A2AService:
         self.client = boto3.client('bedrock-agentcore', region_name=region)
         
         # A2A Agent Registry with Agent Cards
+        # In this, the arn of the agent is the arn that is used to connect to the agent 
+        # runtime object over bedrock agentcore
         self.agents = {
             "monitoring_agent": {
                 "arn": "arn:aws:bedrock-agentcore:us-west-2:218208277580:runtime/monitoring_agent-MlJQsnFk04",
@@ -84,6 +98,7 @@ class A2AService:
         
         # A2A Task Registry
         self.tasks = {}
+        # to maintain the session of the multi-turn conversation
         self.session_id = f"a2a_session_{int(time.time())}_{str(uuid.uuid4())[:8]}"
         
         print(f"🤖 A2A Protocol Service initialized")
@@ -92,85 +107,15 @@ class A2AService:
     
     def _create_monitoring_agent_card(self) -> Dict[str, Any]:
         """Create A2A compliant Agent Card for monitoring agent"""
-        return {
-            "name": "CloudWatch Monitoring Agent",
-            "description": "Advanced monitoring and analysis agent for AWS CloudWatch metrics, logs, and infrastructure health",
-            "url": "arn:aws:bedrock-agentcore:us-west-2:218208277580:runtime/monitoring_agent-MlJQsnFk04",
-            "provider": {
-                "organization": "AWS Infrastructure Team",
-                "url": "https://aws.amazon.com/bedrock"
-            },
-            "version": "1.0.0",
-            "capabilities": {
-                "streaming": True,
-                "pushNotifications": False,
-                "stateTransitionHistory": True
-            },
-            "authentication": {
-                "schemes": ["AWS4-HMAC-SHA256"]
-            },
-            "defaultInputModes": ["text"],
-            "defaultOutputModes": ["text", "data"],
-            "skills": [
-                {
-                    "id": "cloudwatch_analysis",
-                    "name": "CloudWatch Metrics Analysis",
-                    "description": "Analyze CloudWatch metrics for anomalies and performance issues",
-                    "tags": ["monitoring", "metrics", "cloudwatch"],
-                    "inputModes": ["text"],
-                    "outputModes": ["text", "data"]
-                },
-                {
-                    "id": "root_cause_analysis",
-                    "name": "Root Cause Analysis",
-                    "description": "Deep dive analysis to identify root causes of system issues",
-                    "tags": ["analysis", "troubleshooting"],
-                    "inputModes": ["text"],
-                    "outputModes": ["text", "data"]
-                }
-            ]
-        }
+        with open(MONITORING_AGENT_SKILLS, 'r') as f:
+            print(f"loading the monitoring agent card: {json.load(f)}")
+            return json.load(f)
     
     def _create_ops_orchestrator_card(self) -> Dict[str, Any]:
         """Create A2A compliant Agent Card for ops orchestrator agent"""
-        return {
-            "name": "Operations Orchestrator Agent",
-            "description": "Multi-agent orchestrator for incident management, ticket creation, and team coordination",
-            "url": "arn:aws:bedrock-agentcore:us-west-2:218208277580:runtime/ops_orchestrator_multi_agent-db8C1qCrVP",
-            "provider": {
-                "organization": "AWS Operations Team",
-                "url": "https://aws.amazon.com/bedrock"
-            },
-            "version": "1.0.0",
-            "capabilities": {
-                "streaming": True,
-                "pushNotifications": True,
-                "stateTransitionHistory": True
-            },
-            "authentication": {
-                "schemes": ["AWS4-HMAC-SHA256"]
-            },
-            "defaultInputModes": ["text"],
-            "defaultOutputModes": ["text", "data"],
-            "skills": [
-                {
-                    "id": "incident_management",
-                    "name": "Incident Management",
-                    "description": "Coordinate incident response including ticket creation and team notifications",
-                    "tags": ["incident", "coordination", "jira"],
-                    "inputModes": ["text"],
-                    "outputModes": ["text", "data"]
-                },
-                {
-                    "id": "team_coordination",
-                    "name": "Team Coordination",
-                    "description": "Notify relevant teams and coordinate response actions",
-                    "tags": ["coordination", "notifications"],
-                    "inputModes": ["text"],
-                    "outputModes": ["text", "data"]
-                }
-            ]
-        }
+        with open(INCIDENT_AGENT_SKILLS, 'r') as f:
+            print(f"loading the ops agent card: {json.load(f)}")
+            return json.load(f)
     
     def get_agent_card(self, agent_id: str) -> Dict[str, Any]:
         """Get A2A compliant Agent Card for discovery"""

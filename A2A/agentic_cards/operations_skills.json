@@ -1,0 +1,139 @@
+{
+  "name": "Operations Orchestrator Agent",
+  "description": "Multi-agent orchestrator for incident management, ticket creation, and team coordination across GitHub and Jira platforms",
+  "url": "arn:aws:bedrock-agentcore:us-west-2:218208277580:runtime/ops_orchestrator_multi_agent-db8C1qCrVP",
+  "provider": {
+    "organization": "AWS Operations Team",
+    "url": "https://aws.amazon.com/bedrock"
+  },
+  "version": "1.0.0",
+  "capabilities": {
+    "streaming": true,
+    "pushNotifications": true,
+    "stateTransitionHistory": true
+  },
+  "authentication": {
+    "schemes": ["AWS4-HMAC-SHA256"]
+  },
+  "defaultInputModes": ["text"],
+  "defaultOutputModes": ["text", "data"],
+  "skills": [
+    {
+      "id": "incident_management",
+      "name": "Incident Management",
+      "description": "Comprehensive incident response coordination including automated ticket creation, status tracking, and escalation management across Jira and GitHub",
+      "tags": ["incident", "coordination", "jira", "github", "automation"],
+      "inputModes": ["text"],
+      "outputModes": ["text", "data"],
+      "relatedOperations": ["createIssue", "getIssue", "editIssue", "doTransition", "getTransitions"]
+    },
+    {
+      "id": "jira_issue_management",
+      "name": "Jira Issue Management",
+      "description": "Create, update, and manage Jira issues with full lifecycle support including transitions, priority management, and assignment",
+      "tags": ["jira", "issues", "workflow", "tracking"],
+      "inputModes": ["text"],
+      "outputModes": ["text", "data"],
+      "relatedOperations": ["createIssue", "getIssue", "editIssue", "doTransition", "getTransitions"]
+    },
+    {
+      "id": "github_issue_management",
+      "name": "GitHub Issue Management",
+      "description": "Manage GitHub repository issues including creation, updates, labeling, assignment, and state management",
+      "tags": ["github", "issues", "repository", "collaboration"],
+      "inputModes": ["text"],
+      "outputModes": ["text", "data"],
+      "relatedOperations": ["listIssues", "createIssue", "getIssue", "updateIssue"]
+    },
+    {
+      "id": "cross_platform_coordination",
+      "name": "Cross-Platform Coordination",
+      "description": "Synchronize and coordinate issues across GitHub and Jira platforms, ensuring consistent tracking and communication",
+      "tags": ["coordination", "synchronization", "github", "jira", "integration"],
+      "inputModes": ["text"],
+      "outputModes": ["text", "data"],
+      "relatedOperations": ["createIssue", "updateIssue", "editIssue", "listIssues", "getIssue"]
+    },
+    {
+      "id": "repository_content_management",
+      "name": "Repository Content Management",
+      "description": "Manage GitHub repository content including file creation, updates, and documentation for incident response procedures",
+      "tags": ["github", "content", "documentation", "repository"],
+      "inputModes": ["text"],
+      "outputModes": ["text", "data"],
+      "relatedOperations": ["getContent", "createOrUpdateFileContents"]
+    },
+    {
+      "id": "label_and_categorization",
+      "name": "Label and Categorization Management",
+      "description": "Create and manage labels across GitHub repositories for better issue categorization and tracking",
+      "tags": ["labels", "categorization", "github", "organization"],
+      "inputModes": ["text"],
+      "outputModes": ["text", "data"],
+      "relatedOperations": ["listLabels", "createLabel"]
+    },
+    {
+      "id": "workflow_automation",
+      "name": "Workflow Automation",
+      "description": "Automate incident response workflows including issue state transitions, assignments, and escalation procedures",
+      "tags": ["automation", "workflow", "escalation", "transitions"],
+      "inputModes": ["text"],
+      "outputModes": ["text", "data"],
+      "relatedOperations": ["doTransition", "getTransitions", "updateIssue", "editIssue"]
+    },
+    {
+      "id": "team_coordination",
+      "name": "Team Coordination and Assignment",
+      "description": "Coordinate team responses, manage assignments, and facilitate communication across development and operations teams",
+      "tags": ["coordination", "notifications", "assignment", "teams"],
+      "inputModes": ["text"],
+      "outputModes": ["text", "data"],
+      "relatedOperations": ["createIssue", "editIssue", "updateIssue"]
+    },
+    {
+      "id": "incident_tracking",
+      "name": "Incident Tracking and Reporting",
+      "description": "Track incident progress, generate status reports, and maintain comprehensive incident documentation",
+      "tags": ["tracking", "reporting", "documentation", "status"],
+      "inputModes": ["text"],
+      "outputModes": ["text", "data"],
+      "relatedOperations": ["getIssue", "listIssues", "getTransitions", "getContent"]
+    },
+    {
+      "id": "escalation_management",
+      "name": "Escalation Management",
+      "description": "Manage incident escalation processes including priority adjustments, stakeholder notifications, and timeline management",
+      "tags": ["escalation", "priority", "stakeholders", "timeline"],
+      "inputModes": ["text"],
+      "outputModes": ["text", "data"],
+      "relatedOperations": ["editIssue", "updateIssue", "doTransition"]
+    }
+  ],
+  "integrations": {
+    "github": {
+      "apiVersion": "v3",
+      "baseUrl": "https://api.github.com",
+      "supportedOperations": [
+        "listIssues",
+        "createIssue", 
+        "getIssue",
+        "updateIssue",
+        "listLabels",
+        "createLabel",
+        "getContent",
+        "createOrUpdateFileContents"
+      ]
+    },
+    "jira": {
+      "apiVersion": "3.0.0",
+      "baseUrl": "https://api.atlassian.com/ex/jira/{cloudid}/rest/api/3",
+      "supportedOperations": [
+        "createIssue",
+        "getIssue",
+        "editIssue",
+        "getTransitions",
+        "doTransition"
+      ]
+    }
+  }
+}
