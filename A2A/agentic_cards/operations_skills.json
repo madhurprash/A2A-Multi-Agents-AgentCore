@@ -1,7 +1,7 @@
 {
   "name": "Operations Orchestrator Agent",
   "description": "Multi-agent orchestrator for incident management, ticket creation, and team coordination across GitHub and Jira platforms",
-  "url": "arn:aws:bedrock-agentcore:us-west-2:218208277580:runtime/ops_orchestrator_multi_agent-db8C1qCrVP",
+  "url": "arn:aws:bedrock-agentcore:us-west-2:",
   "provider": {
     "organization": "AWS Operations Team",
     "url": "https://aws.amazon.com/bedrock"
