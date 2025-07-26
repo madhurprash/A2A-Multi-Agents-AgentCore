@@ -1,0 +1,37 @@
+theme: minima
+title: Multi-Agents AgentCore Documentation
+description: Comprehensive documentation for the A2A Multi-Agents AgentCore system
+url: "https://your-username.github.io"
+baseurl: "/A2A-Multi-Agents-AgentCore"
+
+markdown: kramdown
+highlighter: rouge
+kramdown:
+  input: GFM
+  syntax_highlighter: rouge
+
+plugins:
+  - jekyll-feed
+  - jekyll-sitemap
+
+header_pages:
+  - index.md
+  - monitoring-agent.md
+  - ops-orchestrator-agent.md
+
+collections:
+  docs:
+    output: true
+    permalink: /:collection/:name/
+
+defaults:
+  - scope:
+      path: ""
+      type: "pages"
+    values:
+      layout: "page"
+  - scope:
+      path: ""
+      type: "docs"
+    values:
+      layout: "page"

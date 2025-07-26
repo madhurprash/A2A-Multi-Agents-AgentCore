@@ -43,7 +43,7 @@ load_dotenv()
 # Container-friendly API key setup
 if not os.getenv('OPENAI_API_KEY'):
     # This will be set via container environment or fallback
-    os.environ['OPENAI_API_KEY'] = os.getenv('OPENAI_API_KEY', 'sk-kzNisEr2egDCj4pGucApK3cIy9VYtLhPsJ8yu8wGUjT3BlbkFJ4O3uJmIQlyPIpOFOebOXZ8q1e8GDan8gy8cMqRolUA')
+    os.environ['OPENAI_API_KEY'] = os.getenv('OPENAI_API_KEY', 'sk-dummykey')
     print("✅ OpenAI API key set for container environment")
 
 # Disable OpenAI tracing to prevent span_data.result errors
