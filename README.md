@@ -1,5 +1,7 @@
 # Multi-Agent System with AWS Bedrock AgentCore, OpenAI and Strands SDK: Comprehensive Guide
 
+❗❗ NOTE: This repository contains heavy detail, multiple SDKs and integrations. This repository is under construction and can be re-used for various applications.❗❗
+
 ![System Overview](img/page1.png)
 
 ## Table of Contents
