@@ -38,6 +38,23 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'multi-agents'))
 # This is the function that invokes the agents
 from invoke_agent import invoke_monitoring_agent
 
+# Import Strands agent for intelligent routing
+try:
+    from strands import Agent
+    from strands.models import BedrockModel
+    STRANDS_AVAILABLE = True
+except ImportError:
+    STRANDS_AVAILABLE = False
+    print("⚠️ Strands not available. Install strands-agents for intelligent routing.")
+
+# Import bedrock runtime for LiteLLM fallback
+try:
+    bedrock_runtime = boto3.client('bedrock-runtime', region_name='us-west-2')
+    BEDROCK_RUNTIME_AVAILABLE = True
+except Exception:
+    BEDROCK_RUNTIME_AVAILABLE = False
+    print("⚠️ Bedrock runtime not available. Using hardcoded routing.")
+
 # Constants that are defined to bring in the agent skills
 AGENTIC_SKILLS: str = os.path.join(os.path.dirname(__file__), "agentic_cards")
 INCIDENT_AGENT_SKILLS: str = os.path.join(AGENTIC_SKILLS, 'operations_skills.json')
@@ -70,17 +87,223 @@ class PartType(Enum):
     FILE = "file"
     DATA = "data"
 
+class IntelligentA2ARouter:
+    """
+    Intelligent Agent Router using Strands Agent or Bedrock LiteLLM
+    
+    This router decides which agent should handle incoming requests based on:
+    - Agent capability cards
+    - Query analysis
+    - Historical patterns
+    """
+    
+    def __init__(self, region: str = "us-west-2"):
+        self.region = region
+        self.router_agent = None
+        self.bedrock_runtime = None
+        self.routing_enabled = False
+        
+        # Initialize Strands router agent if available
+        if STRANDS_AVAILABLE:
+            try:
+                self.router_agent = Agent(
+                    model=BedrockModel(),
+                    system_prompt="""You are an intelligent agent router for A2A communication.
+                    
+                    Your job is to analyze user queries and decide which agent should handle them based on their capabilities:
+                    
+                    - monitoring_agent: CloudWatch logs, metrics, alarms, dashboards, AWS service monitoring, root cause analysis, infrastructure discovery
+                    - ops_orchestrator: JIRA tickets, GitHub issues, incident management, team coordination, workflow automation
+                    
+                    Respond with ONLY the agent_id (either "monitoring_agent" or "ops_orchestrator").
+                    No explanation needed, just the agent name."""
+                )
+                self.routing_enabled = True
+                print("🧠 Strands intelligent router initialized")
+            except Exception as e:
+                print(f"⚠️ Failed to initialize Strands router: {e}")
+        
+        # Fallback to Bedrock Runtime for LiteLLM approach
+        elif BEDROCK_RUNTIME_AVAILABLE:
+            try:
+                self.bedrock_runtime = boto3.client('bedrock-runtime', region_name=region)
+                self.routing_enabled = True
+                print("🧠 Bedrock LiteLLM router initialized")
+            except Exception as e:
+                print(f"⚠️ Failed to initialize Bedrock runtime: {e}")
+        
+        if not self.routing_enabled:
+            print("⚠️ No intelligent routing available - falling back to hardcoded routing")
+    
+    async def select_agent(self, query: str, available_agents: Dict[str, Any]) -> str:
+        """
+        Use LLM to intelligently select which agent should handle the query
+        
+        Args:
+            query: User's request/message
+            available_agents: Dictionary of available agents with their cards
+            
+        Returns:
+            agent_id: The ID of the selected agent
+        """
+        if not self.routing_enabled:
+            return self._fallback_routing(query)
+        
+        try:
+            # First try Strands agent approach
+            if self.router_agent:
+                return await self._route_with_strands(query, available_agents)
+            
+            # Fallback to Bedrock LiteLLM approach
+            elif self.bedrock_runtime:
+                return await self._route_with_bedrock(query, available_agents)
+            
+        except Exception as e:
+            print(f"⚠️ Intelligent routing failed: {e}")
+            return self._fallback_routing(query)
+        
+        return self._fallback_routing(query)
+    
+    async def _route_with_strands(self, query: str, available_agents: Dict[str, Any]) -> str:
+        """Route using Strands agent"""
+        # Build context with agent capabilities
+        agent_capabilities = {}
+        for agent_id, agent_info in available_agents.items():
+            card = agent_info.get("card", {})
+            if "skills" in card:
+                skills = [skill.get("name", "") + ": " + skill.get("description", "") 
+                         for skill in card["skills"]]
+                agent_capabilities[agent_id] = skills
+            else:
+                agent_capabilities[agent_id] = [card.get("description", "")]
+        
+        context = f"""
+Query to route: "{query}"
+
+Available agents and their capabilities:
+{json.dumps(agent_capabilities, indent=2)}
+
+Which agent should handle this query?
+"""
+        
+        # Use Strands agent to make decision
+        result = await self.router_agent.run(context)
+        selected_agent = result.content.strip().lower()
+        
+        # Validate and clean the response
+        if "monitoring_agent" in selected_agent:
+            return "monitoring_agent"
+        elif "ops_orchestrator" in selected_agent:
+            return "ops_orchestrator"
+        else:
+            print(f"⚠️ Invalid agent selection: {selected_agent}")
+            return self._fallback_routing(query)
+    
+    async def _route_with_bedrock(self, query: str, available_agents: Dict[str, Any]) -> str:
+        """Route using Bedrock LiteLLM approach"""
+        # Build agent capabilities summary
+        agent_summary = []
+        for agent_id, agent_info in available_agents.items():
+            card = agent_info.get("card", {})
+            description = card.get("description", "")
+            if "skills" in card:
+                skills = [skill.get("name") for skill in card["skills"][:5]]  # Top 5 skills
+                description += f" Skills: {', '.join(skills)}"
+            agent_summary.append(f"- {agent_id}: {description}")
+        
+        prompt = f"""Human: You are an intelligent agent router. Analyze this query and decide which agent should handle it.
+
+Query: "{query}"
+
+Available agents:
+{chr(10).join(agent_summary)}
+
+Respond with ONLY the agent_id (monitoring_agent or ops_orchestrator). No explanation.
+        """
+        
+        try:
+            response = self.bedrock_runtime.invoke_model(
+                modelId="anthropic.claude-3-5-sonnet-20240620-v1:0",
+                body=json.dumps({
+                    "anthropic_version": "bedrock-2023-05-31",
+                    "max_tokens": 100,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": 0.1
+                })
+            )
+            
+            response_body = json.loads(response.get('body').read())
+            selected_agent = response_body['content'][0]['text'].strip().lower()
+            
+            # Validate and clean the response
+            if "monitoring_agent" in selected_agent:
+                return "monitoring_agent"
+            elif "ops_orchestrator" in selected_agent:
+                return "ops_orchestrator"
+            else:
+                print(f"⚠️ Invalid agent selection: {selected_agent}")
+                return self._fallback_routing(query)
+                
+        except Exception as e:
+            print(f"⚠️ Bedrock routing failed: {e}")
+            return self._fallback_routing(query)
+    
+    def _fallback_routing(self, query: str) -> str:
+        """Fallback to rule-based routing when LLM routing fails"""
+        query_lower = query.lower()
+        
+        # Keywords that suggest monitoring agent
+        monitoring_keywords = [
+            'cloudwatch', 'logs', 'metrics', 'alarm', 'dashboard', 'monitoring',
+            'cpu', 'memory', 'disk', 'network', 'performance', 'latency',
+            'error rate', 'health check', 'aws service', 'infrastructure'
+        ]
+        
+        # Keywords that suggest ops orchestrator
+        ops_keywords = [
+            'jira', 'ticket', 'github', 'issue', 'incident', 'coordinate',
+            'notify', 'team', 'escalate', 'assign', 'workflow', 'automation',
+            'create issue', 'update ticket', 'documentation'
+        ]
+        
+        monitoring_score = sum(1 for keyword in monitoring_keywords if keyword in query_lower)
+        ops_score = sum(1 for keyword in ops_keywords if keyword in query_lower)
+        
+        if monitoring_score > ops_score:
+            print(f"🔄 Fallback routing: monitoring_agent (score: {monitoring_score})")
+            return "monitoring_agent"
+        elif ops_score > monitoring_score:
+            print(f"🔄 Fallback routing: ops_orchestrator (score: {ops_score})")
+            return "ops_orchestrator"
+        else:
+            # Default to monitoring for ambiguous queries
+            print(f"🔄 Fallback routing: monitoring_agent (default)")
+            return "monitoring_agent"
+
+
 class A2AService:
     """
     A2A Protocol Compliant Communication Service
     
     Implements the Agent2Agent protocol for communication between agents
     using AWS Bedrock AgentCore runtime with proper A2A structures.
+    Enhanced with intelligent LLM-based agent routing.
     """
     
-    def __init__(self, region: str = "us-west-2"):
+    def __init__(self, region: str = "us-west-2", use_intelligent_routing: bool = True):
         self.region = region
         self.client = boto3.client('bedrock-agentcore', region_name=region)
+        
+        # Initialize intelligent router
+        self.use_intelligent_routing = use_intelligent_routing
+        self.router = None
+        if use_intelligent_routing:
+            try:
+                self.router = IntelligentA2ARouter(region)
+                print(f"🧠 Intelligent routing enabled")
+            except Exception as e:
+                print(f"⚠️ Failed to initialize intelligent router: {e}")
+                self.use_intelligent_routing = False
         
         # A2A Agent Registry with Agent Cards
         # In this, the arn of the agent is the arn that is used to connect to the agent 
@@ -108,14 +331,16 @@ class A2AService:
     def _create_monitoring_agent_card(self) -> Dict[str, Any]:
         """Create A2A compliant Agent Card for monitoring agent"""
         with open(MONITORING_AGENT_SKILLS, 'r') as f:
-            print(f"loading the monitoring agent card: {json.load(f)}")
-            return json.load(f)
+            data = json.load(f)
+            print(f"loading the monitoring agent card: {data}")
+            return data
     
     def _create_ops_orchestrator_card(self) -> Dict[str, Any]:
         """Create A2A compliant Agent Card for ops orchestrator agent"""
         with open(INCIDENT_AGENT_SKILLS, 'r') as f:
-            print(f"loading the ops agent card: {json.load(f)}")
-            return json.load(f)
+            data = json.load(f)
+            print(f"loading the ops agent card: {data}")
+            return data
     
     def get_agent_card(self, agent_id: str) -> Dict[str, Any]:
         """Get A2A compliant Agent Card for discovery"""
@@ -126,6 +351,26 @@ class A2AService:
     def list_agents(self) -> List[str]:
         """List available agents for discovery"""
         return list(self.agents.keys())
+    
+    async def create_task_with_intelligent_routing(self, initial_message: str, context: Optional[Dict] = None) -> Dict[str, Any]:
+        """
+        Create A2A task with intelligent agent selection
+        
+        Uses LLM-based routing to automatically select the best agent for the task
+        """
+        if self.use_intelligent_routing and self.router:
+            try:
+                selected_agent = await self.router.select_agent(initial_message, self.agents)
+                print(f"🧠 Intelligent routing selected: {selected_agent}")
+            except Exception as e:
+                print(f"⚠️ Intelligent routing failed, using fallback: {e}")
+                selected_agent = self.router._fallback_routing(initial_message) if self.router else "monitoring_agent"
+        else:
+            # Default fallback routing
+            selected_agent = "monitoring_agent"
+            print(f"🔄 Using default agent: {selected_agent}")
+        
+        return self.create_task(selected_agent, initial_message, context)
     
     def create_task(self, agent_id: str, initial_message: str, context: Optional[Dict] = None) -> Dict[str, Any]:
         """Create A2A compliant task with proper lifecycle"""
@@ -201,13 +446,36 @@ class A2AService:
             "final": task["state"] in [TaskState.COMPLETED.value, TaskState.CANCELED.value, TaskState.FAILED.value, TaskState.REJECTED.value]
         }
     
-    async def send_message(self, task_id: str, message_content: str, role: str = MessageRole.USER.value) -> Dict[str, Any]:
-        """Send A2A compliant message to agent and get response"""
+    async def send_message(self, task_id: str, message_content: str, role: str = MessageRole.USER.value, 
+                          allow_agent_switching: bool = False) -> Dict[str, Any]:
+        """
+        Send A2A compliant message to agent and get response
+        
+        Args:
+            task_id: The task ID to send the message to
+            message_content: The message content
+            role: The role of the sender
+            allow_agent_switching: If True, allows intelligent routing to switch agents mid-conversation
+        """
         if task_id not in self.tasks:
             raise ValueError(f"Unknown task: {task_id}")
         
         task = self.tasks[task_id]
         agent_id = task["agent_id"]
+        
+        # Optional intelligent agent switching mid-conversation
+        if allow_agent_switching and self.use_intelligent_routing and self.router:
+            try:
+                suggested_agent = await self.router.select_agent(message_content, self.agents)
+                if suggested_agent != agent_id:
+                    print(f"🔄 Intelligent routing suggests switching from {agent_id} to {suggested_agent}")
+                    # Ask user or auto-switch based on configuration
+                    agent_id = suggested_agent
+                    task["agent_id"] = agent_id
+                    task["agent_switches"] = task.get("agent_switches", 0) + 1
+                    print(f"✅ Switched to {agent_id} (switches: {task['agent_switches']})")
+            except Exception as e:
+                print(f"⚠️ Agent switching failed: {e}")
         
         # Check if task is in terminal state
         if task["state"] in [TaskState.COMPLETED.value, TaskState.CANCELED.value, TaskState.FAILED.value, TaskState.REJECTED.value]:
@@ -362,6 +630,22 @@ Please respond according to your agent card capabilities and provide a detailed 
             formatted.append(f"{role}: {content}")
         return "\n".join(formatted)
     
+    # Intelligent routing convenience methods
+    async def send_intelligent_message(self, message: str, context: Optional[Dict] = None) -> Dict[str, Any]:
+        """
+        Send a message with automatic intelligent agent selection
+        
+        This is the main entry point for intelligent A2A communication
+        """
+        task = await self.create_task_with_intelligent_routing(message, context)
+        return await self.send_message(task["id"], message)
+    
+    async def continue_conversation(self, task_id: str, message: str, allow_switching: bool = True) -> Dict[str, Any]:
+        """
+        Continue a conversation with optional intelligent agent switching
+        """
+        return await self.send_message(task_id, message, allow_agent_switching=allow_switching)
+    
     # Legacy compatibility methods
     async def ops_to_monitoring(self, prompt: str, context: Optional[Dict] = None) -> str:
         """Legacy method - creates task and sends message to monitoring agent"""
@@ -504,6 +788,56 @@ Please respond according to your agent card capabilities and provide a detailed 
         
         return status
 
+async def demo_intelligent_a2a_routing():
+    """
+    Demonstration of Intelligent A2A Routing capabilities
+    """
+    print("🧠 Starting Intelligent A2A Routing Demo")
+    print("=" * 60)
+    
+    a2a = A2AService(use_intelligent_routing=True)
+    
+    # Demo intelligent routing with various queries
+    test_queries = [
+        {
+            "query": "Check CloudWatch alarms for high CPU usage in EC2 instances",
+            "expected": "monitoring_agent"
+        },
+        {
+            "query": "Create a JIRA ticket for database performance issue and assign to DevOps team",
+            "expected": "ops_orchestrator"
+        },
+        {
+            "query": "Analyze error logs from Lambda functions for the past hour",
+            "expected": "monitoring_agent"
+        },
+        {
+            "query": "Update GitHub issue #123 with incident resolution steps and close it",
+            "expected": "ops_orchestrator"
+        },
+        {
+            "query": "Monitor API Gateway latency metrics and check for anomalies",
+            "expected": "monitoring_agent"
+        }
+    ]
+    
+    print("\\n🎯 Testing Intelligent Agent Selection:")
+    for i, test in enumerate(test_queries, 1):
+        print(f"\\n{i}️⃣ Query: {test['query'][:80]}...")
+        print(f"   Expected: {test['expected']}")
+        
+        try:
+            result = await a2a.send_intelligent_message(test['query'])
+            actual_agent = a2a.tasks[result['task_id']]['agent_id']
+            status = "✅ CORRECT" if actual_agent == test['expected'] else "❌ INCORRECT"
+            print(f"   Selected: {actual_agent} {status}")
+            print(f"   Response: {result['message']['parts'][0]['content'][:100]}...")
+        except Exception as e:
+            print(f"   ❌ Error: {e}")
+    
+    print("\\n✅ Intelligent A2A Routing Demo Complete!")
+    print("=" * 60)
+
 async def demo_a2a_communication():
     """
     Demonstration of A2A Protocol compliant communication capabilities
@@ -567,12 +901,14 @@ async def demo_a2a_communication():
 
 def main():
     """Main function with CLI interface"""
-    parser = argparse.ArgumentParser(description="A2A Protocol Communication Service")
+    parser = argparse.ArgumentParser(description="A2A Protocol Communication Service with Intelligent Routing")
     parser.add_argument("--demo", action="store_true", help="Run A2A protocol communication demo")
+    parser.add_argument("--intelligent-demo", action="store_true", help="Run intelligent routing demo")
     parser.add_argument("--health", action="store_true", help="Run A2A health check")
     parser.add_argument("--list-agents", action="store_true", help="List available agents")
     parser.add_argument("--agent-card", type=str, help="Get agent card for specified agent")
     parser.add_argument("--create-task", nargs=2, metavar=('AGENT_ID', 'MESSAGE'), help="Create task for agent")
+    parser.add_argument("--intelligent-message", type=str, help="Send message with intelligent agent selection")
     parser.add_argument("--ops-to-monitoring", type=str, help="Send message from ops to monitoring (legacy)")
     parser.add_argument("--monitoring-to-ops", type=str, help="Send message from monitoring to ops (legacy)")
     
@@ -580,6 +916,15 @@ def main():
     
     if args.demo:
         asyncio.run(demo_a2a_communication())
+    elif args.intelligent_demo:
+        asyncio.run(demo_intelligent_a2a_routing())
+    elif args.intelligent_message:
+        a2a = A2AService(use_intelligent_routing=True)
+        result = asyncio.run(a2a.send_intelligent_message(args.intelligent_message))
+        print(f"Task ID: {result['task_id']}")
+        print(f"Selected Agent: {a2a.tasks[result['task_id']]['agent_id']}")
+        print(f"Status: {result['status']['state']}")
+        print(f"Response: {result['message']['parts'][0]['content']}")
     elif args.health:
         a2a = A2AService()
         asyncio.run(a2a.health_check())
@@ -612,14 +957,17 @@ def main():
     else:
         # Interactive mode
         print("🤖 A2A Protocol Communication Service - Interactive Mode")
-        print("=" * 50)
+        print("🧠 Enhanced with Intelligent LLM-based Agent Routing")
+        print("=" * 60)
         print("1. Run demo: python a2a_communication_compliant.py --demo")
-        print("2. Health check: python a2a_communication_compliant.py --health")
-        print("3. List agents: python a2a_communication_compliant.py --list-agents")
-        print("4. Get agent card: python a2a_communication_compliant.py --agent-card monitoring_agent")
-        print("5. Create task: python a2a_communication_compliant.py --create-task monitoring_agent 'Check CPU usage'")
-        print("6. Legacy ops→monitoring: python a2a_communication_compliant.py --ops-to-monitoring 'message'")
-        print("7. Legacy monitoring→ops: python a2a_communication_compliant.py --monitoring-to-ops 'message'")
+        print("2. Intelligent routing demo: python a2a_communication_compliant.py --intelligent-demo")
+        print("3. Health check: python a2a_communication_compliant.py --health")
+        print("4. List agents: python a2a_communication_compliant.py --list-agents")
+        print("5. Get agent card: python a2a_communication_compliant.py --agent-card monitoring_agent")
+        print("6. Create task: python a2a_communication_compliant.py --create-task monitoring_agent 'Check CPU usage'")
+        print("7. Intelligent message: python a2a_communication_compliant.py --intelligent-message 'Check CloudWatch alarms'")
+        print("8. Legacy ops→monitoring: python a2a_communication_compliant.py --ops-to-monitoring 'message'")
+        print("9. Legacy monitoring→ops: python a2a_communication_compliant.py --monitoring-to-ops 'message'")
 
 if __name__ == "__main__":
     main()

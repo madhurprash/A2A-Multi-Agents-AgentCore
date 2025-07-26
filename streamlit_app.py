@@ -27,7 +27,6 @@ from a2a_communication_compliant import A2AService, TaskState
 # Page configuration
 st.set_page_config(
     page_title="a Multi-Agent Communication Demo",
-    page_icon="🤖",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -124,8 +123,8 @@ def home_page():
     """Render the home page with architecture overview"""
     st.markdown("""
     <div class="main-header">
-        <h1>🤖 A2A Multi-Agent Communication Demo</h1>
-        <p>Agent-to-Agent Protocol with AWS Bedrock AgentCore</p>
+        <h1>A2A Multi-Agent AgentCore Communication Demo</h1>
+        <p>Agent2Agent Protocol with AWS Bedrock AgentCore</p>
     </div>
     """, unsafe_allow_html=True)
     
@@ -224,6 +223,7 @@ def home_page():
     # Bedrock AgentCore Primitives
     st.header("🧩 Bedrock AgentCore Primitives")
     
+    # First row - Core Primitives
     col1, col2, col3 = st.columns(3)
     
     with col1:
@@ -233,8 +233,11 @@ def home_page():
             <ul>
                 <li>Serverless execution environment</li>
                 <li>Auto-scaling based on demand</li>
-                <li>State management</li>
+                <li>State management & lifecycle</li>
                 <li>Resource isolation</li>
+                <li>Container orchestration</li>
+                <li>ARN-based invocation</li>
+                <li>Local & remote deployment</li>
             </ul>
         </div>
         """, unsafe_allow_html=True)
@@ -242,12 +245,15 @@ def home_page():
     with col2:
         st.markdown("""
         <div class="bedrock-primitive">
-            <h4>📡 Communication Layer</h4>
+            <h4>🆔 Agent Identity</h4>
             <ul>
-                <li>Streaming responses</li>
-                <li>Message queuing</li>
-                <li>Protocol compliance</li>
-                <li>Error handling</li>
+                <li>Agent card-based discovery</li>
+                <li>Capability registration</li>
+                <li>Skill & tool definitions</li>
+                <li>A2A protocol compliance</li>
+                <li>Provider metadata</li>
+                <li>Integration declarations</li>
+                <li>Version management</li>
             </ul>
         </div>
         """, unsafe_allow_html=True)
@@ -255,12 +261,67 @@ def home_page():
     with col3:
         st.markdown("""
         <div class="bedrock-primitive">
-            <h4>🔒 Security & Auth</h4>
+            <h4>🧠 Memory Management</h4>
             <ul>
-                <li>AWS IAM integration</li>
-                <li>Role-based access</li>
-                <li>Encryption in transit</li>
-                <li>Audit logging</li>
+                <li>User preference strategies</li>
+                <li>Semantic memory storage</li>
+                <li>Session summaries</li>
+                <li>Custom memory patterns</li>
+                <li>Namespace isolation</li>
+                <li>Cross-agent memory sharing</li>
+                <li>Context persistence</li>
+            </ul>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    # Second row - Advanced Primitives
+    st.markdown("<br>", unsafe_allow_html=True)
+    col4, col5, col6 = st.columns(3)
+    
+    with col4:
+        st.markdown("""
+        <div class="bedrock-primitive">
+            <h4>📊 Agent Observability</h4>
+            <ul>
+                <li>Real-time health monitoring</li>
+                <li>Task state tracking</li>
+                <li>Performance metrics</li>
+                <li>Error logging & analysis</li>
+                <li>Streaming response tracking</li>
+                <li>A2A protocol monitoring</li>
+                <li>CloudWatch integration</li>
+            </ul>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col5:
+        st.markdown("""
+        <div class="bedrock-primitive">
+            <h4>🌐 Gateway & Integration</h4>
+            <ul>
+                <li>MCP gateway architecture</li>
+                <li>OAuth2/JWT authentication</li>
+                <li>Service orchestration</li>
+                <li>Tool integration layer</li>
+                <li>API gateway routing</li>
+                <li>External system connectivity</li>
+                <li>Secure proxy services</li>
+            </ul>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col6:
+        st.markdown("""
+        <div class="bedrock-primitive">
+            <h4>📡 Communication Layer</h4>
+            <ul>
+                <li>Streaming responses</li>
+                <li>Message queuing</li>
+                <li>A2A protocol compliance</li>
+                <li>Error handling & retry</li>
+                <li>JSON-RPC messaging</li>
+                <li>Task lifecycle management</li>
+                <li>Cross-agent coordination</li>
             </ul>
         </div>
         """, unsafe_allow_html=True)
@@ -363,27 +424,45 @@ def chat_page():
         st.error("A2A Service not available")
         return
     
-    # Sidebar for agent selection and task management
+    # Sidebar for routing information and task management
     with st.sidebar:
         st.subheader("🎛️ Chat Controls")
         
-        # Agent selection
-        available_agents = a2a_service.list_agents()
-        selected_agent = st.selectbox(
-            "Select Agent:",
-            available_agents,
-            index=0,
-            help="Choose which agent to communicate with"
-        )
+        # Intelligent routing status
+        st.info("🧠 **Intelligent Routing Enabled**\n\nAgents are automatically selected based on your message content using LLM analysis.")
+        
+        # Routing examples
+        with st.expander("💡 Routing Examples"):
+            st.markdown("""
+            **Monitoring Agent** handles:
+            - CloudWatch metrics and logs
+            - Performance analysis  
+            - AWS service monitoring
+            - Error rate investigations
+            
+            **Operations Orchestrator** handles:
+            - JIRA ticket creation
+            - GitHub issue management
+            - Team notifications
+            - Incident coordination
+            
+            *Example messages:*
+            - "Check CPU usage on EC2 instances" → Monitoring
+            - "Create a JIRA ticket for this issue" → Operations
+            """)
         
         # Current task info
         if st.session_state.current_task:
             task = st.session_state.current_task
             st.subheader("📋 Current Task")
             st.markdown(f"**ID:** `{task['id'][:8]}...`")
-            st.markdown(f"**Agent:** {task['agent_id']}")
+            st.markdown(f"**Selected Agent:** {task['agent_id']}")
             st.markdown(f"**State:** {task['state']}")
             st.markdown(f"**Created:** {task['created_at'][:19]}")
+            
+            # Show routing reason if available
+            if 'routing_reason' in task:
+                st.markdown(f"**Routing Reason:** {task['routing_reason']}")
             
             if st.button("🗑️ Clear Task"):
                 st.session_state.current_task = None
@@ -478,7 +557,7 @@ def chat_page():
         with st.form("chat_form", clear_on_submit=True):
             user_message = st.text_area(
                 "Message:",
-                placeholder=f"Enter your message for {selected_agent}...",
+                placeholder="Enter your message (agent will be automatically selected)...",
                 height=100
             )
             
@@ -491,18 +570,26 @@ def chat_page():
                 new_task_button = st.form_submit_button("🆕 New Task", use_container_width=True)
             
             if send_button and user_message:
-                with st.spinner(f"Sending message to {selected_agent}..."):
+                with st.spinner("🧠 Analyzing message and selecting optimal agent..."):
                     try:
-                        # Create new task if none exists or if requested
+                        # Use intelligent routing for new tasks or if requested
                         if not st.session_state.current_task or new_task_button:
-                            task = a2a_service.create_task(selected_agent, user_message)
+                            # Use intelligent routing to create task
+                            task = asyncio.run(a2a_service.create_task_with_intelligent_routing(user_message))
                             st.session_state.current_task = task
+                            selected_agent = task["agent_id"]
+                            
+                            # Show routing decision
+                            st.success(f"🎯 Intelligent routing selected: **{selected_agent}**")
+                            
                             task_id = task["id"]
                         else:
                             task_id = st.session_state.current_task["id"]
+                            selected_agent = st.session_state.current_task["agent_id"]
                         
                         # Send message
-                        result = asyncio.run(a2a_service.send_message(task_id, user_message))
+                        with st.spinner(f"Sending message to {selected_agent}..."):
+                            result = asyncio.run(a2a_service.send_message(task_id, user_message))
                         
                         # Add to chat history
                         st.session_state.chat_history.append({
@@ -519,11 +606,11 @@ def chat_page():
                             "content": result["message"]["parts"][0]["content"]
                         })
                         
-                        st.success("Message sent successfully!")
+                        st.success("Message processed successfully!")
                         st.rerun()
                         
                     except Exception as e:
-                        st.error(f"Failed to send message: {str(e)}")
+                        st.error(f"Failed to process message: {str(e)}")
     
     with col2:
         st.subheader("📈 Chat Statistics")
@@ -535,6 +622,21 @@ def chat_page():
         st.metric("Total Messages", total_messages)
         st.metric("User Messages", user_messages)
         st.metric("Agent Responses", agent_responses)
+        
+        # Routing statistics
+        st.subheader("🧠 Routing Statistics")
+        
+        agent_usage = {}
+        for msg in st.session_state.chat_history:
+            if msg["type"] == "user_message":
+                agent = msg["agent"]
+                agent_usage[agent] = agent_usage.get(agent, 0) + 1
+        
+        if agent_usage:
+            for agent, count in agent_usage.items():
+                st.metric(f"{agent}", count)
+        else:
+            st.write("No routing data yet")
         
         if st.button("🗑️ Clear Chat History"):
             st.session_state.chat_history = []
