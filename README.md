@@ -1,4 +1,4 @@
-# Multi-Agent System with AWS Bedrock AgentCore: Comprehensive Guide
+# Multi-Agent System with AWS Bedrock AgentCore, OpenAI and Strands SDK: Comprehensive Guide
 
 ![System Overview](img/page1.png)
 
