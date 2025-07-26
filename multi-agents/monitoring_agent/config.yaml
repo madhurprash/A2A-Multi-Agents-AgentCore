@@ -50,7 +50,7 @@ agent_information:
       # that this agent has access to - this can be an existing gateway in the case
       # of which you would have to configure the access token for inbound auth of
       # this gateway
-      name: "monitorgtwnew"
+      name: "monitorgtwnewmadhur"
       # this is the name of the bucket where the target files (openapi or smithy) will
       # be uploaded from
       bucket_name: fmbench-deep-dive
@@ -95,7 +95,7 @@ agent_information:
             - ScopeName: "gateway:write"
               ScopeDescription: "Write access"
       # This is if the agent is already configured and needs to be invokeds
-      agent_arn: arn:aws:bedrock-agentcore:us-west-2:218208277580:runtime/monitoring_agent-MlJQsnFk04
+      agent_arn:
       # set this to false if the agent arn is provided from above
       launch_agentcore_runtime: true
       # this is the runtime execution role for the agent that will be used 

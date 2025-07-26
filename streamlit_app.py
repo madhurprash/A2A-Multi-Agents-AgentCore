@@ -123,7 +123,7 @@ def home_page():
     """Render the home page with architecture overview"""
     st.markdown("""
     <div class="main-header">
-        <h1>A2A Multi-Agent AgentCore Communication Demo</h1>
+        <h1>A2A Multi-Agent AgentCore Incident Response System</h1>
         <p>Agent2Agent Protocol with AWS Bedrock AgentCore</p>
     </div>
     """, unsafe_allow_html=True)

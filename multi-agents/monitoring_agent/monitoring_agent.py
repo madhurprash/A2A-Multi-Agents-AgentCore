@@ -338,15 +338,19 @@ def refresh_access_token():
     # Get the expected pool name from config
     gateway_config_info = config_data['agent_information']['monitoring_agent_model_info'].get('gateway_config', {})
     cognito_config = gateway_config_info.get('inbound_auth', {}).get('cognito', {})
+    print(f"Cognito config extracted from the config file: {cognito_config}")
     expected_pool_name = cognito_config.get('user_pool_name', 'agentcore-gateway-pool')
-    expected_resource_server_id = cognito_config.get('resource_server_id', 'monitoring_agent2039')
+    expected_resource_server_id = cognito_config.get('resource_server_id', 'monitoring_agent')
     
     print(f"Looking for user pool: {expected_pool_name}")
     print(f"Looking for resource server: {expected_resource_server_id}")
     
-    # Expected names based on the code patterns
+    # Expected names based on the code patterns - look for exact matches or specific patterns
     expected_pool_names = [
-        expected_pool_name,
+        expected_pool_name,  # "gateway" from config
+        f"agentcore-{expected_pool_name}",  # "agentcore-gateway"
+        f"{expected_pool_name}-pool",  # "gateway-pool"
+        f"agentcore-{expected_pool_name}-pool",  # "agentcore-gateway-pool"
         "monitoring-agentcore-gateway-pool",
         "sample-agentcore-gateway-pool", 
         "MCPServerPool"
@@ -361,7 +365,13 @@ def refresh_access_token():
         pools_response = cognito.list_user_pools(MaxResults=60)
         for pool in pools_response.get('UserPools', []):
             pool_name = pool['Name']
-            if any(expected_name in pool_name for expected_name in expected_pool_names):
+            # First try exact match with expected_pool_name
+            if pool_name == expected_pool_name:
+                user_pool_id = pool['Id']
+                print(f"✅ Found user pool (exact match): {pool_name} (ID: {user_pool_id})")
+                break
+            # Then try other expected patterns
+            elif pool_name in expected_pool_names:
                 user_pool_id = pool['Id']
                 print(f"✅ Found user pool: {pool_name} (ID: {user_pool_id})")
                 break
@@ -375,7 +385,8 @@ def refresh_access_token():
             # Try different resource server IDs, prioritizing the config one
             expected_resource_ids = [
                 expected_resource_server_id,
-                "monitoring-agentcore-gateway-id",
+                "monitoring_agent2039",
+                "monitoring-agentcore-gateway-id", 
                 "sample-agentcore-gateway-id"
             ]
             
@@ -389,10 +400,18 @@ def refresh_access_token():
                     print(f"✅ Found resource server: {resource_server_id}")
                     break
                 except cognito.exceptions.ResourceNotFoundException:
+                    print(f"❌ Resource server '{resource_id}' not found, trying next...")
                     continue
                     
             if not resource_server_id:
-                print("❌ No resource server found")
+                # List all resource servers to help debug
+                try:
+                    all_servers = cognito.list_resource_servers(UserPoolId=user_pool_id, MaxResults=50)
+                    print("❌ No matching resource server found. Available resource servers:")
+                    for server in all_servers.get('ResourceServers', []):
+                        print(f"  - ID: {server['Identifier']}, Name: {server['Name']}")
+                except Exception as list_error:
+                    print(f"❌ No resource server found and failed to list available servers: {list_error}")
                 return None
                 
             # Find client
@@ -811,6 +830,7 @@ from mcp.client.streamable_http import streamablehttp_client
 def create_streamable_http_transport():
     """
     This is the client to return a streamablehttp access token
+    Automatically refreshes token if connection fails
     """
     try:
         # Read credentials from file to get current token
@@ -819,8 +839,29 @@ def create_streamable_http_transport():
             current_access_token = json_credentials['access_token']
             current_mcp_url = json_credentials['mcp_url']
         
-        response = streamablehttp_client(current_mcp_url, headers={"Authorization": f"Bearer {current_access_token}"})
-        return response
+        try:
+            response = streamablehttp_client(current_mcp_url, headers={"Authorization": f"Bearer {current_access_token}"})
+            return response
+        except Exception as auth_error:
+            logger.warning(f"Authentication failed, attempting to refresh token: {auth_error}")
+            
+            # Try to refresh the token
+            new_token = refresh_access_token()
+            if new_token:
+                # Update credentials file with new token
+                json_credentials['access_token'] = new_token
+                json_credentials['updated_at'] = time.time()
+                with open(MONITORING_GATEWAY_CREDENTIALS_PATH, 'w') as cred_file:
+                    json.dump(json_credentials, cred_file, indent=4)
+                
+                # Retry connection with new token
+                response = streamablehttp_client(current_mcp_url, headers={"Authorization": f"Bearer {new_token}"})
+                logger.info("✅ Successfully connected with refreshed token")
+                return response
+            else:
+                logger.error("❌ Failed to refresh access token")
+                raise auth_error
+                
     except Exception as e:
         logger.error(f"An error occurred while connecting to the MCP server: {e}")
         raise e
