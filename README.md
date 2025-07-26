@@ -1,5 +1,7 @@
 # Multi-Agent System with AWS Bedrock AgentCore: Comprehensive Guide
 
+![System Overview](img/page1.png)
+
 ## Table of Contents
 1. [System Overview](#system-overview)
 2. [Architecture Deep Dive](#architecture-deep-dive)
@@ -12,7 +14,40 @@
 9. [Troubleshooting](#troubleshooting)
 10. [Best Practices](#best-practices)
 
+A comprehensive multi-agent system built on AWS Bedrock AgentCore for automated operations, monitoring, and incident management.
+
+## 📖 Documentation
+
+For comprehensive documentation, visit our **[GitHub Pages Documentation Site](https://madhurprash.github.io/A2A-Multi-Agents-AgentCore/)**
+
+The documentation includes:
+- [Complete system overview](https://madhurprash.github.io/A2A-Multi-Agents-AgentCore/)
+- [Monitoring Agent guide](https://madhurprash.github.io/A2A-Multi-Agents-AgentCore/monitoring-agent)
+- [Ops Orchestrator Agent guide](https://madhurprash.github.io/A2A-Multi-Agents-AgentCore/ops-orchestrator-agent)
+- Setup instructions and troubleshooting guides
+- Security best practices
+
+## Quick Overview
+
+This repository contains two main agent systems:
+
+### 🔍 Monitoring Agent
+AWS Bedrock AgentCore runtime for monitoring CloudWatch logs, metrics, dashboards, and other AWS services.
+
+### 🤝 Ops Orchestrator Agent  
+Multi-agent system for automated incident triaging, ChatOps collaboration, and report generation.
+
+## Getting Started
+
+1. **Visit the [Documentation Site](https://madhurprash.github.io/A2A-Multi-Agents-AgentCore/)** for detailed setup instructions
+2. Choose your agent based on your needs:
+   - For AWS monitoring: Start with the Monitoring Agent
+   - For operations management: Begin with the Ops Orchestrator Agent
+3. Follow the step-by-step guides for configuration and deployment
+
 ## System Overview
+
+![System Status](img/sys_status.png)
 
 This multi-agent system demonstrates sophisticated implementation of AWS Bedrock AgentCore primitives through two coordinated agents: a **Monitoring Agent** for AWS resource analysis and an **Ops Orchestrator Agent** for automated incident management and operations coordination.
 
@@ -53,6 +88,8 @@ This multi-agent system demonstrates sophisticated implementation of AWS Bedrock
 ```
 
 ### Agent Communication Patterns
+
+![Agent Registry](img/agent_registry.png)
 
 The system supports multiple communication patterns:
 
@@ -120,13 +157,27 @@ The Ops Orchestrator Agent represents a sophisticated multi-agent collaboration 
 
 ### Service Integrations
 
+![Integrations](img/integrations.png)
+
 **JIRA Integration**: Comprehensive JIRA REST API integration supporting issue creation, updates, project management, and workflow automation. Includes proper authentication with API tokens and robust error handling.
 
 **GitHub Integration**: Full GitHub API integration for repository management, issue tracking, gist creation, and documentation maintenance. Supports both public and private repositories with appropriate permission handling.
 
 **Communication Platforms**: Integration with major communication platforms for real-time notifications, status updates, and team coordination during incident response.
 
+### ChatOps Integration
+
+![ChatOps](img/chatops.png)
+
+The ChatOps integration provides:
+- **Real-time Notifications**: Instant alerts and updates to relevant team channels
+- **Interactive Commands**: Direct agent interaction through chat interfaces
+- **Status Updates**: Automated progress reports during incident resolution
+- **Team Coordination**: Seamless collaboration between human operators and AI agents
+
 ## AWS Bedrock AgentCore Primitives
+
+![Primitives](img/primitives.png)
 
 Your implementation showcases sophisticated usage of AWS Bedrock AgentCore's modern primitives, representing current best practices in enterprise AI agent development.
 

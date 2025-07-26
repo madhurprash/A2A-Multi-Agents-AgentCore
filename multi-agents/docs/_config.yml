@@ -1,7 +1,7 @@
 theme: minima
 title: Multi-Agents AgentCore Documentation
 description: Comprehensive documentation for the A2A Multi-Agents AgentCore system
-url: "https://your-username.github.io"
+url: "https://madhurprash.github.io"
 baseurl: "/A2A-Multi-Agents-AgentCore"
 
 markdown: kramdown
@@ -18,6 +18,8 @@ header_pages:
   - index.md
   - monitoring-agent.md
   - ops-orchestrator-agent.md
+  - a2a-protocol.md
+  - bring-your-own-agent.md
 
 collections:
   docs:
