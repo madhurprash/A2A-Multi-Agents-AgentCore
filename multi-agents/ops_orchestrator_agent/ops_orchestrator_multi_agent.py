@@ -40,6 +40,12 @@ from botocore.exceptions import ClientError
 # Load environment variables first
 load_dotenv()
 
+# Container-friendly API key setup
+if not os.getenv('OPENAI_API_KEY'):
+    # This will be set via container environment or fallback
+    os.environ['OPENAI_API_KEY'] = os.getenv('OPENAI_API_KEY', '<your default value here>')
+    print("✅ OpenAI API key set for container environment")
+
 # Disable OpenAI tracing to prevent span_data.result errors
 import os
 os.environ["OPENAI_ENABLE_TRACING"] = "false"
@@ -115,12 +121,14 @@ class SimpleObservability:
     """Simple observability using OpenTelemetry baggage for session tracking"""
     
     def __init__(self, service_name="monitoring-agent"):
+        print(f"Initializing the simple observability through agentcore observability...")
         self.service_name = service_name
         self.enabled = os.getenv("ENABLE_OBSERVABILITY", "true").lower() == "true"
         self.session_id = f"ops_operating_session_{int(time.time())}_{str(uuid.uuid4())[:8]}"
         self.actor_id = f"actor_{int(time.time())}"
         if self.enabled and OTEL_AVAILABLE:
             self._setup_session_context()
+            
     
     def _setup_session_context(self):
         """Set up OpenTelemetry baggage for session tracking"""
@@ -147,6 +155,10 @@ class SimpleObservability:
         return self.actor_id
 
 class AgentObservabilityHooks:
+    """
+    This is the observability hook that is used to observe the openAI agents
+    when the agents are executed
+    """
     def __init__(self, agent_name):
         self.agent_name = agent_name
     
@@ -386,6 +398,9 @@ strategy_map = {
 }
 
 for agent_name, cfg in memory_cfg.items():
+    """
+    For each of the strategy we will create the memory and wait
+    """
     use_existing = cfg.get('use_existing', False)
     existing_id = cfg.get('memory_id')
 
@@ -417,6 +432,7 @@ for agent_name, cfg in memory_cfg.items():
 # all of the agents will have access to based on their memory being used
 # Create observability hooks instance
 try:
+    # we will initialize the observability for this
     observability_hooks = AgentObservabilityHooks(agent_name="monitoring-agent")
     print(f"✅ Observability hooks initialized: {observability_hooks.get_hook_status()}")
 except Exception as e:
@@ -917,10 +933,9 @@ print(f"Going to read the jira agent prompt template from: {JIRA_AGENT_PROMPT}")
 OpenAI Agents SDK implementation with MCP servers
 Agents get tools directly from MCP servers - no custom tools added
 """
-
+import requests
 from agents import Agent, Runner, function_tool
 from agents.mcp import MCPServerStreamableHttp
-import requests
 
 class MCPConnectionManager:
     """Manages MCP connections with proper lifecycle handling"""
@@ -947,6 +962,9 @@ class MCPConnectionManager:
                 "connect_timeout": timeout_config.get('connect_timeout', 30.0),
                 "read_timeout": timeout_config.get('read_timeout', 120.0),
             },
+            # Cache tools list enables caching of the tools and their descriptions in memory
+            # so that the list tools function is not called again and again with each
+            # user input, leading to an improvement in performance and latency
             cache_tools_list=True
         )
         
@@ -1014,6 +1032,8 @@ def list_tools_direct_api(gateway_url: str, access_token: str, max_retries: int 
     """
     List tools from MCP gateway using direct JSON-RPC 2.0 API call with auth retry
     """
+    # this will help retrieve information about the tools in the MCP 
+    # server that we connect to
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {access_token}"
@@ -1453,25 +1473,6 @@ class OpsOrchestratorSystem:
                 return "Operation completed with tracing warnings"
             return f"❌ Error in ops orchestration: {error_msg}"
     
-    async def cleanup_connections(self):
-        """Cleanup MCP connections when done - use global connection manager"""
-        print("🧹 Cleaning up MCP connections via global manager...")
-        
-        try:
-            await mcp_manager.close_all_connections()
-        except Exception as e:
-            print(f"⚠️ Warning during global connection cleanup: {e}")
-        
-        # Clear local tracking as well
-        self.mcp_connections.clear()
-        print("✅ MCP connections cleaned up")
-    
-    def __del__(self):
-        """Ensure cleanup on object destruction"""
-        if self.mcp_connections:
-            # Note: This won't work for async cleanup, but serves as a backup
-            print("⚠️ Warning: MCP connections not properly cleaned up. Call cleanup_connections() explicitly.")
-
 # Usage example - replace your existing initialization
 async def initialize_ops_orchestrator_with_tool_listing():
     """Initialize the ops orchestrator system with detailed tool listing"""
@@ -1495,184 +1496,17 @@ async def initialize_ops_orchestrator_with_tool_listing():
     
     return ops_system
 
-# Test function to verify tools are working
-async def test_tool_listing():
-    """Test the tool listing functionality"""
-    
-    print("🧪 Testing MCP tool listing...")
-    
-    # Initialize the system
-    ops_system = await initialize_ops_orchestrator_with_tool_listing()
-    
-    # Test queries
-    test_queries = [
-        "What JIRA tools are available to me?",
-        "What GitHub operations can I perform?",
-        "List all the tools available across both systems"
-    ]
-    
-    for query in test_queries:
-        print(f"\n🎯 Testing: {query}")
-        try:
-            result = await ops_system.execute_orchestration(query)
-            print(f"✅ Result: {result}")
-        except Exception as e:
-            print(f"❌ Error: {e}")
-        print("-" * 50)
-
-async def interactive_cli():
-    """Interactive CLI for the ops orchestrator agent"""
-    print("🚀 Initializing Ops Orchestrator Agent...")
-    print("Please wait while the system initializes...")
-    
-    # Initialize the ops orchestrator system
-    ops_system = None
-    try:
-        ops_system = await initialize_ops_orchestrator_with_tool_listing()
-        print("✅ Ops Orchestrator Agent ready!")
-    except Exception as e:
-        print(f"❌ Failed to initialize agent: {e}")
-        return
-    
-    print("\n" + "="*60)
-    print("🎯 Welcome to the Ops Orchestrator Interactive CLI")
-    print("="*60)
-    print("Commands:")
-    print("  help    - Show this help message")
-    print("  exit    - Exit the program")
-    print("  quit    - Exit the program")
-    print("  clear   - Clear the screen")
-    print("\nType your ops-related questions or tasks below.")
-    print("The agent can help with AWS operations, JIRA tickets, GitHub management, and more.")
-    print("="*60)
-    print()  # Add newline before prompt
-    
-    # Flush output to ensure prompt appears immediately
-    sys.stdout.flush()
-    
-    while True:
-        try:
-            # Get user input
-            user_input = input("🎯 OpsAgent> ").strip()
-            
-            # Handle empty input
-            if not user_input:
-                continue
-                
-            # Handle special commands
-            if user_input.lower() in ['exit', 'quit']:
-                print("👋 Goodbye!")
-                break
-            elif user_input.lower() == 'help':
-                print("\n📚 Help:")
-                print("  - Ask questions about AWS operations")
-                print("  - Request JIRA ticket creation or management")
-                print("  - Get help with GitHub repository management")
-                print("  - Request incident analysis and triaging")
-                print("  - Ask for system monitoring insights")
-                print("\nExamples:")
-                print("  'Create a JIRA ticket for database performance issue'")
-                print("  'Check the status of my GitHub repositories'")
-                print("  'Help me analyze recent AWS CloudWatch alarms'")
-                print("  'What tools are available for GitHub operations?'")
-                continue
-            elif user_input.lower() == 'clear':
-                os.system('clear' if os.name == 'posix' else 'cls')
-                continue
-            
-            # Process the user input through the agent
-            print("🔄 Processing your request...")
-            try:
-                result = await ops_system.execute_orchestration(user_input)
-                print(f"\n📋 Result:\n{result}\n")
-            except Exception as e:
-                print(f"❌ Error processing request: {e}\n")
-                
-        except KeyboardInterrupt:
-            print("\n\n👋 Interrupted by user. Goodbye!")
-            break
-        except EOFError:
-            print("\n\n👋 End of input. Goodbye!")
-            break
-        except Exception as e:
-            print(f"❌ Unexpected error: {e}")
-    
-    # Properly cleanup connections
-    if ops_system:
-        try:
-            await ops_system.cleanup_connections()
-        except Exception as e:
-            print(f"⚠️ Warning during cleanup: {e}")
-
-def parse_arguments():
-    """Parse command line arguments"""
-    parser = argparse.ArgumentParser(
-        description="Ops Orchestrator Multi-Agent System",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="🎯 Ops Orchestrator Multi-Agent System 🎯\n\n"
-        "This agent helps with:\n"
-        "  • AWS operations and monitoring\n"
-        "  • JIRA ticket management\n" 
-        "  • GitHub repository operations\n"
-        "  • Incident response and triaging\n"
-        "  • Automated reporting\n\n"
-        "Usage examples:\n"
-        "  python ops_orchestrator_multi_agent.py --interactive\n"
-        "  python ops_orchestrator_multi_agent.py --test\n"
-        "  python ops_orchestrator_multi_agent.py --query 'Create a JIRA ticket'"
-    )
-    
-    parser.add_argument(
-        '--interactive', '-i',
-        action='store_true',
-        help='Start the interactive CLI mode'
-    )
-    
-    parser.add_argument(
-        '--test', '-t',
-        action='store_true', 
-        help='Run the tool listing test'
-    )
-    
-    parser.add_argument(
-        '--query', '-q',
-        type=str,
-        help='Execute a single query and exit'
-    )
-    
-    return parser.parse_args()
-
-async def main():
-    """Main entry point"""
-    args = parse_arguments()
-    
-    if args.interactive:
-        await interactive_cli()
-    elif args.test:
-        await test_tool_listing()
-    elif args.query:
-        print("🚀 Initializing Ops Orchestrator Agent...")
-        try:
-            ops_system = await initialize_ops_orchestrator_with_tool_listing()
-            print(f"🔄 Processing query: {args.query}")
-            result = await ops_system.execute_orchestration(args.query)
-            print(f"\n📋 Result:\n{result}")
-        except Exception as e:
-            print(f"❌ Error: {e}")
-    else:
-        # Default to interactive mode if no arguments provided
-        print("No arguments provided. Starting in interactive mode...")
-        await interactive_cli()
-
 # ────────────────────────────────────────────────────────────────────────────────────
 # ENTRYPOINT FUNCTION FOR BEDROCK AGENTCORE INVOCATION
 # ────────────────────────────────────────────────────────────────────────────────────
 
 # Import only what's needed for the AgentCore app entrypoint
+print(f"Going to start the app.entrypoint from where this invocations will process...")
 from bedrock_agentcore.runtime import BedrockAgentCoreApp
 
 # Create app instance for entrypoint decorator
 app = BedrockAgentCoreApp()
+print(f"Created the Bedrock agent core app and we will be using an entrypoint from this app to invoke the agent from the runtime feature: {app}")
 
 @app.entrypoint
 async def invoke(payload):
@@ -1688,6 +1522,7 @@ async def invoke(payload):
     ops_system = None
     try:
         # Initialize the ops orchestrator system if not already done
+        print(f"Going to invoke the ops lead agent: {user_message}")
         ops_system = await initialize_ops_orchestrator_with_tool_listing()
         
         # Execute the orchestration using OpenAI Agents SDK
@@ -1709,24 +1544,6 @@ async def invoke(payload):
             except Exception as cleanup_error:
                 print(f"⚠️ Warning during cleanup: {cleanup_error}")
 
-async def main_with_cleanup():
-    """Main function with proper cleanup"""
-    try:
-        await main()
-    except KeyboardInterrupt:
-        print("\n🛑 Interrupted by user")
-    except Exception as e:
-        print(f"❌ Error in main: {e}")
-    finally:
-        # Ensure all MCP connections are properly closed
-        try:
-            await mcp_manager.close_all_connections()
-        except Exception as cleanup_error:
-            print(f"⚠️ Cleanup error: {cleanup_error}")
-
 if __name__ == "__main__":
-    # Support both interactive CLI and AgentCore runtime
-    if len(sys.argv) > 1 and sys.argv[1] == '--agentcore':
-        app.run()
-    else:
-        asyncio.run(main_with_cleanup())
+    print(f"Running the application for the Bedrock agent core runtime.")
+    app.run()
