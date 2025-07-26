@@ -2,6 +2,55 @@
 
 A comprehensive multi-agent system built on AWS Bedrock AgentCore that provides automated incident triaging, ChatOps collaboration, and report generation for operational workflows.
 
+## 🚀 Quick Start Guide
+
+### Prerequisites
+First, ensure you have completed all prerequisite setup as outlined in the [Prerequisites](#prerequisites) section below.
+
+### Local Deployment Steps
+
+1. **Configure and Launch the Agent Runtime**
+   ```bash
+   python ops_orchestrator_runtime.py --configure --launch
+   ```
+   This will:
+   - Configure the AgentCore runtime environment
+   - Set up authentication and gateway connections
+   - Launch the ops orchestrator agent with runtime capabilities
+
+2. **Navigate to Parent Directory and Invoke Agent**
+   ```bash
+   cd ..
+   python invoke_agent.py
+   ```
+
+3. **Agent Invocation Options**
+   You can invoke the agent using either:
+   
+   **Option A: HTTP/REST API**
+   - Use standard HTTP requests to interact with the agent
+   - The agent will be accessible via the configured gateway endpoint
+   
+   **Option B: AWS SDK (boto3)**
+   - Use the AWS Bedrock AgentCore SDK for direct agent invocation
+   - Requires your agent ARN for programmatic access
+   - Example:
+     ```python
+     import boto3
+     client = boto3.client('bedrock-agentcore')
+     response = client.invoke_agent(
+         agentId='your-agent-arn',
+         message='Your incident description here'
+     )
+     ```
+
+### Summary of Deployment Process
+1. ✅ Complete prerequisites setup
+2. ✅ Run `python ops_orchestrator_runtime.py --configure --launch`
+3. ✅ Navigate up one directory: `cd ..`
+4. ✅ Invoke agent: `python invoke_agent.py`
+5. ✅ Use HTTP or boto3 for agent communication
+
 ## Architecture Overview
 
 The Ops Orchestrator Agent is a sophisticated multi-agent system that consists of three specialized OpenAI agents working collaboratively:

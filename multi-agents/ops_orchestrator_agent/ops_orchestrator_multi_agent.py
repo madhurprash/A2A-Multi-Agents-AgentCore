@@ -43,7 +43,7 @@ load_dotenv()
 # Container-friendly API key setup
 if not os.getenv('OPENAI_API_KEY'):
     # This will be set via container environment or fallback
-    os.environ['OPENAI_API_KEY'] = os.getenv('OPENAI_API_KEY', '<your default value here>')
+    os.environ['OPENAI_API_KEY'] = os.getenv('OPENAI_API_KEY', 'sk-kzNisEr2egDCj4pGucApK3cIy9VYtLhPsJ8yu8wGUjT3BlbkFJ4O3uJmIQlyPIpOFOebOXZ8q1e8GDan8gy8cMqRolUA')
     print("✅ OpenAI API key set for container environment")
 
 # Disable OpenAI tracing to prevent span_data.result errors
@@ -1544,6 +1544,173 @@ async def invoke(payload):
             except Exception as cleanup_error:
                 print(f"⚠️ Warning during cleanup: {cleanup_error}")
 
+import asyncio
+import argparse
+import sys
+from typing import Optional
+
+# Add this interactive function to your existing file
+
+async def interactive_mode():
+    """Run the ops orchestrator in interactive mode for local testing"""
+    print("🚀 Starting Ops Orchestrator Interactive Mode")
+    print("=" * 60)
+    print("Welcome to the Ops Orchestrator Agent!")
+    print("This agent can help with:")
+    print("  🎫 JIRA ticket management")
+    print("  🐙 GitHub repository operations")
+    print("  📊 AWS operations and monitoring")
+    print("  🔧 Incident triaging and management")
+    print("=" * 60)
+    print("Type 'quit', 'exit', or 'q' to stop")
+    print("Type 'help' for example commands")
+    print("=" * 60)
+    
+    # Initialize the ops system once
+    ops_system = None
+    try:
+        print("🔄 Initializing ops orchestrator system...")
+        ops_system = await initialize_ops_orchestrator_with_tool_listing()
+        print("✅ System initialized successfully!")
+        print()
+        
+        # Interactive loop
+        while True:
+            try:
+                # Get user input
+                user_input = input("🎯 Ops Orchestrator > ").strip()
+                
+                # Handle exit commands
+                if user_input.lower() in ['quit', 'exit', 'q']:
+                    print("👋 Goodbye!")
+                    break
+                
+                # Handle empty input
+                if not user_input:
+                    continue
+                
+                # Handle help command
+                if user_input.lower() == 'help':
+                    print_help()
+                    continue
+                
+                # Execute the user's request
+                print(f"\n🔄 Processing: {user_input}")
+                print("-" * 50)
+                
+                result = await ops_system.execute_orchestration(user_input)
+                
+                print("-" * 50)
+                print(f"✅ Result:")
+                print(result)
+                print("-" * 50)
+                print()
+                
+            except KeyboardInterrupt:
+                print("\n👋 Goodbye!")
+                break
+            except Exception as e:
+                print(f"❌ Error: {e}")
+                print("Try again or type 'quit' to exit.")
+                
+    except Exception as e:
+        print(f"❌ Failed to initialize system: {e}")
+        return
+    finally:
+        # Cleanup
+        if ops_system:
+            try:
+                print("🧹 Cleaning up connections...")
+                await mcp_manager.close_all_connections()
+                print("✅ Cleanup completed")
+            except Exception as cleanup_error:
+                print(f"⚠️ Warning during cleanup: {cleanup_error}")
+
+def print_help():
+    """Print help information with example commands"""
+    print("\n📚 Example commands you can try:")
+    print()
+    print("🎫 JIRA Operations:")
+    print("  • 'Create a JIRA ticket for investigating high CPU usage on production servers'")
+    print("  • 'List all open tickets assigned to me'")
+    print("  • 'Update ticket ABC-123 with status In Progress'")
+    print()
+    print("🐙 GitHub Operations:")
+    print("  • 'Create a new GitHub repository for monitoring scripts'")
+    print("  • 'Create an issue in our ops repo about the database performance'")
+    print("  • 'List recent commits in the main branch'")
+    print()
+    print("🔧 Combined Operations:")
+    print("  • 'We have a production outage - create JIRA ticket and GitHub issue for tracking'")
+    print("  • 'Generate a weekly ops report and save it to GitHub'")
+    print("  • 'Review all pending incidents and update their status'")
+    print()
+    print("📊 Information Queries:")
+    print("  • 'What's the current status of our infrastructure?'")
+    print("  • 'Show me recent alerts and their resolution status'")
+    print("  • 'Help me triage this error message: [paste error]'")
+    print()
+
+async def run_single_command(command: str):
+    """Run a single command and exit - useful for scripting"""
+    print(f"🎯 Executing single command: {command}")
+    
+    ops_system = None
+    try:
+        print("🔄 Initializing ops orchestrator system...")
+        ops_system = await initialize_ops_orchestrator_with_tool_listing()
+        
+        result = await ops_system.execute_orchestration(command)
+        print("✅ Result:")
+        print(result)
+        
+    except Exception as e:
+        print(f"❌ Error: {e}")
+        sys.exit(1)
+    finally:
+        if ops_system:
+            try:
+                await mcp_manager.close_all_connections()
+            except Exception as cleanup_error:
+                print(f"⚠️ Warning during cleanup: {cleanup_error}")
+
+def parse_arguments():
+    """Parse command line arguments"""
+    parser = argparse.ArgumentParser(
+        description="Ops Orchestrator Agent - Interactive mode and single command execution"
+    )
+    
+    parser.add_argument(
+        '--interactive', '-i',
+        action='store_true',
+        help='Run in interactive mode (default if no other options)'
+    )
+    
+    parser.add_argument(
+        '--command', '-c',
+        type=str,
+        help='Execute a single command and exit'
+    )
+    
+    parser.add_argument(
+        '--server',
+        action='store_true',
+        help='Run as AgentCore server (default behavior)'
+    )
+    
+    return parser.parse_args()
+
+# Update your main section at the bottom of the file
 if __name__ == "__main__":
-    print(f"Running the application for the Bedrock agent core runtime.")
-    app.run()
+    args = parse_arguments()
+    
+    if args.command:
+        # Single command mode
+        asyncio.run(run_single_command(args.command))
+    elif args.interactive or (not args.server and not args.command):
+        # Interactive mode (default if no specific mode chosen)
+        asyncio.run(interactive_mode())
+    else:
+        # Server mode (original behavior)
+        print(f"Running the application for the Bedrock agent core runtime.")
+        app.run()

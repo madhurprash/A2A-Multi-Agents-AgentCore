@@ -133,9 +133,13 @@ def get_or_create_user_pool(cognito, USER_POOL_NAME, CREATE_USER_POOL: bool = Fa
     if CREATE_USER_POOL:
         created = cognito.create_user_pool(PoolName=USER_POOL_NAME)
         user_pool_id = created["UserPool"]["Id"]
-        user_pool_id_without_underscore_lc = user_pool_id.replace("_", "").lower()
+        # Create domain name correctly - remove only first underscore
+        if '_' in user_pool_id:
+            user_pool_domain = user_pool_id.replace('_', '', 1).lower()
+        else:
+            user_pool_domain = user_pool_id.lower()
         cognito.create_user_pool_domain(
-            Domain=user_pool_id_without_underscore_lc,
+            Domain=user_pool_domain,
             UserPoolId=user_pool_id
         )
         print("Domain created as well")
@@ -182,8 +186,16 @@ def get_or_create_m2m_client(cognito, user_pool_id, CLIENT_NAME, RESOURCE_SERVER
 
 def get_token(user_pool_id: str, client_id: str, client_secret: str, scope_string: str, REGION: str) -> dict:
     try:
-        user_pool_id_without_underscore = user_pool_id.replace("_", "")
-        url = f"https://{user_pool_id_without_underscore}.auth.{REGION}.amazoncognito.com/oauth2/token"
+        # Get the actual domain name for the user pool
+        cognito = boto3.client("cognito-idp", region_name=REGION)
+        user_pool_response = cognito.describe_user_pool(UserPoolId=user_pool_id)
+        domain = user_pool_response.get('UserPool', {}).get('Domain')
+        print(f"Fetched the user pool id and will be using that in the url: {domain}")
+        
+        if domain:
+            url = f"https://{domain}.auth.{REGION}.amazoncognito.com/oauth2/token"
+        else:
+            raise ValueError("No domain found for the user pool")
         headers = {"Content-Type": "application/x-www-form-urlencoded"}
         data = {
             "grant_type": "client_credentials",

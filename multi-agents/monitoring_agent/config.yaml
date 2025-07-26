@@ -50,7 +50,7 @@ agent_information:
       # that this agent has access to - this can be an existing gateway in the case
       # of which you would have to configure the access token for inbound auth of
       # this gateway
-      name: "monitorgtw-mad039-new"
+      name: "monitorgtwnew"
       # this is the name of the bucket where the target files (openapi or smithy) will
       # be uploaded from
       bucket_name: fmbench-deep-dive
@@ -64,8 +64,8 @@ agent_information:
       # as endpoints to call through the tool gateway primitive
       # These can be json files for now are supported, can be lambda functions as well
       # This represents the target type for the gateway
-      existing_target: false
-      target_name: CloudWatchMonitoringLambda
+      existing_target: true
+      target_name: CloudWatchMonitoring
       target_type: "lambda"  # Options: "openAPI", "lambda", or "smithy"
       targets:
         lambda:
@@ -84,7 +84,7 @@ agent_information:
           # If you want a new user pool to be created, then this is 
           # the value that should be configured in the config file.
           create_user_pool: true
-          user_pool_name: "agentcore-gateway"
+          user_pool_name: "gateway"
           resource_server_id: "monitoring_agent"
           resource_server_name: "agentcore-gateway"
           client_name: "agentcore-client"
@@ -95,7 +95,7 @@ agent_information:
             - ScopeName: "gateway:write"
               ScopeDescription: "Write access"
       # This is if the agent is already configured and needs to be invokeds
-      agent_arn: 
+      agent_arn: arn:aws:bedrock-agentcore:us-west-2:218208277580:runtime/monitoring_agent-MlJQsnFk04
       # set this to false if the agent arn is provided from above
       launch_agentcore_runtime: true
       # this is the runtime execution role for the agent that will be used 

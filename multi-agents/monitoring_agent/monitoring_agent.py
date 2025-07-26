@@ -722,6 +722,7 @@ if not mcp_url or not access_token or not gateway_id:
         # Step 5: Get access token
         print("Getting access token...")
         token_response = get_token(user_pool_id, client_id, client_secret, scope_string, REGION_NAME)
+        print(f"Token response: {token_response}")
         access_token = token_response["access_token"]
         print(f"✅ OpenAPI Gateway created successfully!")
         print(f"Gateway ID: {gateway_id}")

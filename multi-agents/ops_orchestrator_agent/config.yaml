@@ -147,7 +147,7 @@ agent_information:
       iam_role:
         execution_role_arn: "arn:aws:iam::ACCOUNT_ID:role/GenesisGatewayExecutionRole"
       # This is if the agent is already configured and needs to be invokeds
-      agent_arn:
+      agent_arn: arn:aws:bedrock-agentcore:us-west-2:218208277580:runtime/ops_orchestrator_multi_agent-db8C1qCrVP
       # set this to false if the agent arn is provided from above
       launch_agentcore_runtime: true
       # this is the runtime execution role for the agent that will be used 
