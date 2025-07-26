@@ -310,11 +310,11 @@ class A2AService:
         # runtime object over bedrock agentcore
         self.agents = {
             "monitoring_agent": {
-                "arn": "arn:aws:bedrock-agentcore:us-west-2:218208277580:runtime/monitoring_agent-MlJQsnFk04",
+                "arn": "arn:aws:bedrock-agentcore:us-west-2",
                 "card": self._create_monitoring_agent_card()
             },
             "ops_orchestrator": {
-                "arn": "arn:aws:bedrock-agentcore:us-west-2:218208277580:runtime/ops_orchestrator_multi_agent-db8C1qCrVP",
+                "arn": "arn:aws:bedrock-agentcore:us-west-2:",
                 "card": self._create_ops_orchestrator_card()
             }
         }
