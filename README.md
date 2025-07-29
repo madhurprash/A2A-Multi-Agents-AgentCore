@@ -278,7 +278,7 @@ Before starting deployment, ensure you have:
 ```bash
 # Install Python dependencies
 pip install boto3 pyyaml python-keycloak requests openai anthropic streamlit
-pip install strands bedrock-agentcore-starter-toolkit python-dotenv
+pip install strands-agents bedrock-agentcore-starter-toolkit python-dotenv
 pip install opentelemetry-distro[otlp]
 ```
 
