@@ -184,35 +184,23 @@ def get_or_create_m2m_client(cognito, user_pool_id, CLIENT_NAME, RESOURCE_SERVER
     )
     return created["UserPoolClient"]["ClientId"], created["UserPoolClient"]["ClientSecret"]
 
-def get_token(user_pool_id: str, client_id: str, client_secret: str, scope_string: str, REGION: str) -> dict:
-    try:
-        # Get the actual domain name for the user pool
-        cognito = boto3.client("cognito-idp", region_name=REGION)
-        user_pool_response = cognito.describe_user_pool(UserPoolId=user_pool_id)
-        domain = user_pool_response.get('UserPool', {}).get('Domain')
-        print(f"Fetched the user pool id and will be using that in the url: {domain}")
-        
-        if domain:
-            url = f"https://{domain}.auth.{REGION}.amazoncognito.com/oauth2/token"
-        else:
-            raise ValueError("No domain found for the user pool")
-        headers = {"Content-Type": "application/x-www-form-urlencoded"}
-        data = {
-            "grant_type": "client_credentials",
-            "client_id": client_id,
-            "client_secret": client_secret,
-            "scope": scope_string,
-
+def reauthenticate_user(client_id):
+    boto_session = Session()
+    region = boto_session.region_name
+    # Initialize Cognito client
+    cognito_client = boto3.client('cognito-idp', region_name=region)
+    # Authenticate User and get Access Token
+    auth_response = cognito_client.initiate_auth(
+        ClientId=client_id,
+        AuthFlow='USER_PASSWORD_AUTH',
+        AuthParameters={
+            'USERNAME': 'testuser',
+            'PASSWORD': 'MyPassword123!'
         }
-        print(client_id)
-        print(client_secret)
-        response = requests.post(url, headers=headers, data=data)
-        response.raise_for_status()
-        print(f"Fetched the token that will be used to connect to the targets: {response.json()}")
-        return response.json()
+    )
+    bearer_token = auth_response['AuthenticationResult']['AccessToken']
+    return bearer_token
 
-    except requests.exceptions.RequestException as err:
-        return {"error": str(err)}
     
 def create_agentcore_role(agent_name):
     iam_client = boto3.client('iam')
@@ -497,6 +485,26 @@ def create_agentcore_gateway_role(gateway_name):
 
     return agentcore_iam_role
 
+def get_token(user_pool_id: str, client_id: str, client_secret: str, scope_string: str, REGION: str) -> dict:
+    try:
+        user_pool_id_without_underscore = user_pool_id.replace("_", "")
+        url = f"https://{user_pool_id_without_underscore}.auth.{REGION}.amazoncognito.com/oauth2/token"
+        headers = {"Content-Type": "application/x-www-form-urlencoded"}
+        data = {
+            "grant_type": "client_credentials",
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "scope": scope_string,
+
+        }
+        print(client_id)
+        print(client_secret)
+        response = requests.post(url, headers=headers, data=data)
+        response.raise_for_status()
+        return response.json()
+
+    except requests.exceptions.RequestException as err:
+        return {"error": str(err)}
 
 def create_agentcore_gateway_role_s3_smithy(gateway_name):
     iam_client = boto3.client('iam')

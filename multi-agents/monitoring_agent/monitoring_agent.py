@@ -21,6 +21,8 @@ import boto3
 import shutil
 import logging
 import base64
+import argparse
+import re
 from botocore.exceptions import ClientError
 # import the strands agents and strands tools that we will be using
 from strands import Agent
@@ -34,6 +36,10 @@ from strands.models import BedrockModel
 # create memories added to the agent
 from memory_hook import MonitoringMemoryHooks
 from bedrock_agentcore.memory import MemoryClient
+# To correlate traces across multiple agent runs, 
+# we will associate a session ID with our telemetry data using the 
+# Open Telemetry baggage
+from opentelemetry import context, baggage
 # This will help set up for strategies that can then be used 
 # across the code - user preferences, semantic memory or even
 # summarizations across the sessions along with custom strategies
@@ -68,97 +74,66 @@ sys.path.insert(0, ".")
 sys.path.insert(1, "..")
 from utils import *
 from constants import *
-# Simple observability based on AWS Bedrock AgentCore Strands reference
-import uuid
-try:
-    from opentelemetry import baggage, context
-    OTEL_AVAILABLE = True
-except ImportError:
-    OTEL_AVAILABLE = False
-    logger.warning("OpenTelemetry not available. Install aws-opentelemetry-distro for observability.")
 
-class SimpleObservability:
-    """Simple observability using OpenTelemetry baggage for session tracking"""
-    
-    def __init__(self, service_name="monitoring-agent"):
-        self.service_name = service_name
-        self.enabled = os.getenv("ENABLE_OBSERVABILITY", "true").lower() == "true"
-        self.session_id = f"monitoring_session_{int(time.time())}_{str(uuid.uuid4())[:8]}"
-        self.actor_id = f"actor_{int(time.time())}"
-        if self.enabled and OTEL_AVAILABLE:
-            self._setup_session_context()
-    
-    def _setup_session_context(self):
-        """Set up OpenTelemetry baggage for session tracking"""
-        try:
-            ctx = baggage.set_baggage("session.id", self.session_id)
-            ctx = baggage.set_baggage("user.id", self.actor_id) 
-            ctx = baggage.set_baggage("service.name", self.service_name)
-            context.attach(ctx)
-            logger.info(f"Session context set: {self.session_id}")
-        except Exception as e:
-            logger.warning(f"Failed to set session context: {e}")
-    
-    def get_observability_status(self):
-        if not self.enabled:
-            return "Disabled"
-        if not OTEL_AVAILABLE:
-            return "OpenTelemetry not available - install aws-opentelemetry-distro"
-        return f"Enabled with session: {self.session_id}"
-    
-    def get_session_id(self):
-        return self.session_id
-    
-    def get_actor_id(self):
-        return self.actor_id
+# load the environment variables
+load_dotenv()
 
-class AgentObservabilityHooks:
-    def __init__(self, agent_name):
-        self.agent_name = agent_name
-    
-    def register_hooks(self, hook_registry):
-        """Register hooks with the hook registry"""
-        pass
-    
-    def get_hook_status(self):
-        return f"Simple hooks for {self.agent_name}"
-
-def init_observability(service_name, region_name, log_group_name):
-    return SimpleObservability(service_name)
-
-def get_observability():
-    return _observability_instance
-
-def shutdown_observability():
-    pass
-
-def create_cloudwatch_log_group(log_group_name="/aws/bedrock-log-group", region_name=REGION_NAME):
-    """Create CloudWatch log group if it doesn't exist"""
+# This is a parse argument function which will take in arguments for example the session id 
+# in this case. A session is a complete interaction consisting of traces and spans within a 
+# user interaction with an agent
+def parse_arguments():
     try:
-        logs_client = boto3.client('logs', region_name=region_name)
-        
-        # Check if log group exists
-        try:
-            existing_groups = logs_client.describe_log_groups(logGroupNamePrefix=log_group_name)['logGroups']
-            if any(group['logGroupName'] == log_group_name for group in existing_groups):
-                logger.info(f"✅ Log group {log_group_name} already exists")
-                return True
-        except ClientError as e:
-            if e.response['Error']['Code'] != 'ResourceNotFoundException':
-                raise
-        # Create log group
-        logger.info(f"📝 Creating CloudWatch log group: {log_group_name}")
-        logs_client.create_log_group(
-            logGroupName=log_group_name
-        )
-        logger.info(f"✅ Successfully created log group: {log_group_name}")
-        return True
-    except ClientError as e:
-        logger.error(f"❌ Error creating log group: {e}")
-        return False
+        logger.info("Parsing CLI args")
+        parser = argparse.ArgumentParser(description="Monitoring agent with session tracking")
+        parser.add_argument("--session_id", type=str, default=str(uuid.uuid4()),
+                            help="Session ID for the agent")
+        parser.add_argument("--interactive", action="store_true",
+                            help="Run an interactive CLI chat instead of the HTTP server")
+        args = parser.parse_args()
+        if not args.session_id:
+            args.session_id = f"{datetime.utcnow().strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:8]}"
+            print(f"Session ID not provided, generating a new one: {args.session_id}")
+        return args
     except Exception as e:
-        logger.error(f"❌ Unexpected error creating log group: {e}")
-        return False
+        logger.error(f"Error while parsing arguments: {e}")
+        raise
+
+# Now, assuming that this agent is running in agentcore runtime or in compute or containers outside of 
+# agentcore, we will need to enable observability for adding baggage for OTEL compatible tracing and logging
+def set_session_context(session_id: str):
+    """
+    This sets the session ID in OpenTelemetry baggage for trace correlation.
+    This function is used to set the baggage for the context session id that is provided as an 
+    OTEL metric for tracking agents that are hosted outside of Bedrock Agentcore runtime
+    """
+    try:
+        # create the context session id
+        ctx = baggage.set_baggage("session_id", session_id)
+        token = context.attach(ctx)
+        logger.info(f"Session ID set in baggage: {session_id}")
+    except Exception as e:
+        logger.error(f"Error while setting session context: {e}")
+        raise e
+    return token
+
+# We will now initialize the OTEL variables that will be used from the 
+# environment variables to enable python distro, python configurator, 
+# protocol over which the telemetry data will be sent, 
+# the headers (session id, trace id, etc), etc.
+otel_vars = [
+    "OTEL_PYTHON_DISTRO",
+    "OTEL_PYTHON_CONFIGURATOR",
+    "OTEL_EXPORTER_OTLP_PROTOCOL",
+    "OTEL_EXPORTER_OTLP_LOGS_HEADERS",
+    "OTEL_RESOURCE_ATTRIBUTES",
+    "AGENT_OBSERVABILITY_ENABLED",
+    "OTEL_TRACES_EXPORTER"
+]
+print("Open telemetry configuration:")
+for var in otel_vars:
+    value = os.getenv(var)
+    if value:
+        print(f"{var}: {value}")
 
 
 # set a logger
@@ -170,27 +145,80 @@ config_data = load_config('config.yaml')
 logger.info(f"Loaded config from local file system: {json.dumps(config_data, indent=2)}")
 from typing import Dict, List
 
-# ────────────────────────────────────────────────────────────────────────────────────
-# OBSERVABILITY INITIALIZATION
-# ────────────────────────────────────────────────────────────────────────────────────
+# Initialize observability for this agent
+cloudwatch_agent_info: Dict = config_data['cloudwatch_agent_resources']
+print(f"Going to use cloudwatch agent info: {cloudwatch_agent_info}")
 
-# Initialize simple observability system
-_observability_instance = None
+# initialize the cloudwatch client
+cloudwatch_logs_client = boto3.client("logs")
+print(f"Initialized the cloudwatch logs client: {cloudwatch_logs_client}")
+
+# Now, let's create the cloudwatch log group, if this log group is already provided
+# as an environment variable, it will be used
 try:
-    # Create the CloudWatch log group first
-    log_group_name = "/aws/bedrock-log-group"
-    create_cloudwatch_log_group(log_group_name, REGION_NAME)
-    
-    _observability_instance = init_observability(
-        service_name="monitoring-agent",
-        region_name=REGION_NAME,
-        log_group_name=log_group_name
-    )
-    logger.info(f"✅ Observability initialized: {_observability_instance.get_observability_status()}")
-except Exception as e:
-    logger.warning(f"⚠️ Failed to initialize observability: {e}")
-    logger.info("Continuing without observability features...")
+    response = cloudwatch_logs_client.create_log_group(logGroupName=cloudwatch_agent_info.get('log_group_name'))
+    print(f"Created the log group: {response}")
+except ClientError as e:
+    if e.response['Error']['Code'] == 'ResourceAlreadyExistsException':
+        print(f"Log group already exists: {e}")
+    else:
+        print(f"Error while creating log group: {e}")
+        raise e
 
+# Next, we will create a log stream for the same
+try:
+    response = cloudwatch_logs_client.create_log_stream(
+        logGroupName=cloudwatch_agent_info.get('log_group_name'), 
+        logStreamName=cloudwatch_agent_info.get('log_stream_name')  
+    )
+    print(f"Created the log stream: {response}")
+except ClientError as e:
+    if e.response['Error']['Code'] == 'ResourceAlreadyExistsException':
+        print(f"Log stream already exists: {e}")
+    else:
+        print(f"Error while creating log stream: {e}")
+        raise e
+
+def _refresh_access_token() -> str:
+    """
+    Refresh the access token using stored credentials and config
+    """
+    try:
+        # Get config values
+        gateway_config_info = config_data['agent_information']['monitoring_agent_model_info'].get('gateway_config')
+        inbound_auth_config = gateway_config_info.get('inbound_auth')
+        cognito_config = inbound_auth_config.get('cognito')
+        
+        RESOURCE_SERVER_ID = cognito_config.get('resource_server_id', "monitoring_agent")
+        CLIENT_NAME = cognito_config.get('client_name', "agentcore-client")
+        
+        # Get auth info to extract pool details
+        auth_info = gateway_config_info.get('auth_info', {})
+        discovery_url = auth_info.get('discovery_url')
+        
+        if discovery_url:
+            # Extract pool_id from discovery URL
+            match = re.search(r'/([^/]+)/\.well-known', discovery_url)
+            if match:
+                user_pool_id = match.group(1)
+                
+                # Get client credentials
+                cognito = boto3.client("cognito-idp", region_name=REGION_NAME)
+                _, client_secret = get_or_create_m2m_client(cognito, user_pool_id, CLIENT_NAME, RESOURCE_SERVER_ID)
+                
+                # Get new token
+                scope_string = f"{RESOURCE_SERVER_ID}/gateway:read {RESOURCE_SERVER_ID}/gateway:write"
+                token_response = get_token(user_pool_id, auth_info.get('client_id'), client_secret, scope_string, REGION_NAME)
+                
+                if "error" not in token_response:
+                    return token_response["access_token"]
+                    
+        logger.error("Failed to refresh access token")
+        return None
+    except Exception as e:
+        logger.error(f"Token refresh failed: {e}")
+        return None
+    
 # ────────────────────────────────────────────────────────────────────────────────────
 # AGENTCORE MEMORY PRIMITIVE INITIALIZATION
 # ────────────────────────────────────────────────────────────────────────────────────
@@ -241,12 +269,6 @@ else:
                 }
             },
             {
-                "summaryMemoryStrategy": {
-                    "name": "SessionSummarizer",
-                    "namespaces": ["/summaries/{actorId}/"]
-                }
-            },
-            {
                 "customMemoryStrategy": {
                     "name": "MonitoringIssueTracker",
                     "namespaces": ["/technical-issues/{actorId}"],
@@ -272,7 +294,9 @@ else:
                 memory_execution_role_arn=EXECUTION_ROLE_ARN,
                 strategies=strategies,
                 description="Memory for monitoring agent with custom issue tracking",
-                event_expiry_days=90
+                event_expiry_days=7, # short term conversation expires after 7 days
+                max_wait = 300, 
+                poll_interval=10
             )
             # create and get the memory id
             memory_id = memory.get("id")
@@ -291,9 +315,14 @@ else:
             raise
 logger.info(f"Using memory with ID: {memory_id}")
 
+# Initialize the arguments
+args = parse_arguments()
+logger.info(f"Arguments: {args}")
+
 # Create memory hooks instance - use observability session/actor IDs if available
-session_id = _observability_instance.get_session_id() if _observability_instance else f"monitoring_session_{int(time.time())}"
-actor_id = _observability_instance.get_actor_id() if _observability_instance else f'default_actor_{int(time.time())}'
+session_id = args.session_id
+actor_id = f'monitoring-actor-{int(time.time())}'
+logger.info(f"Using the following session id: {session_id} and actor id: {actor_id}")
 
 monitoring_hooks = MonitoringMemoryHooks(
     memory_id=memory_id,
@@ -303,166 +332,24 @@ monitoring_hooks = MonitoringMemoryHooks(
 )
 print(f"created the memory hook: {monitoring_hooks}")
 
-# Create observability hooks instance
-try:
-    observability_hooks = AgentObservabilityHooks(agent_name="monitoring-agent")
-    logger.info(f"✅ Observability hooks initialized: {observability_hooks.get_hook_status()}")
-except Exception as e:
-    logger.warning(f"⚠️ Failed to initialize observability hooks: {e}")
-    observability_hooks = None
-
 # We will be using this hook in the agent creation process
-logger.info(f"Going to create the memory gateway for this agent....")
+logger.info(f"Going to create the agentcore gateway for this agent containing monitoring tools....")
 
 # Create gateway using the enhanced AgentCore Gateway setup
 monitoring_agent_config = config_data['agent_information']['monitoring_agent_model_info']
-gateway_config_info = monitoring_agent_config.get('gateway_config', {})
+gateway_config_info = monitoring_agent_config.get('gateway_config')
 # if there are any pre configured gateway credentials, they will be used here
-gateway_credentials = gateway_config_info.get('credentials', {})
+gateway_credentials = gateway_config_info.get('credentials')
 
 print("Setting up AgentCore Gateway from configuration...")
 
 # Function to validate credentials
 def validate_credentials(credentials_dict):
-    """Validate that credentials dict contains all required fields"""
+    """
+    Validate that credentials dict contains all required fields
+    """
     required_fields = ['gateway_id', 'mcp_url', 'access_token']
     return all(field in credentials_dict and credentials_dict[field] for field in required_fields)
-
-def refresh_access_token():
-    """
-    Find existing Cognito setup and create a new access token
-    """
-    print("🔍 Searching for existing Cognito user pools to refresh token...")
-    
-    cognito = boto3.client("cognito-idp", region_name=REGION_NAME)
-    # Get the expected pool name from config
-    gateway_config_info = config_data['agent_information']['monitoring_agent_model_info'].get('gateway_config', {})
-    cognito_config = gateway_config_info.get('inbound_auth', {}).get('cognito', {})
-    print(f"Cognito config extracted from the config file: {cognito_config}")
-    expected_pool_name = cognito_config.get('user_pool_name', 'agentcore-gateway-pool')
-    expected_resource_server_id = cognito_config.get('resource_server_id', 'monitoring_agent')
-    
-    print(f"Looking for user pool: {expected_pool_name}")
-    print(f"Looking for resource server: {expected_resource_server_id}")
-    
-    # Expected names based on the code patterns - look for exact matches or specific patterns
-    expected_pool_names = [
-        expected_pool_name,  # "gateway" from config
-        f"agentcore-{expected_pool_name}",  # "agentcore-gateway"
-        f"{expected_pool_name}-pool",  # "gateway-pool"
-        f"agentcore-{expected_pool_name}-pool",  # "agentcore-gateway-pool"
-        "monitoring-agentcore-gateway-pool",
-        "sample-agentcore-gateway-pool", 
-        "MCPServerPool"
-    ]
-    user_pool_id = None
-    client_id = None
-    client_secret = None
-    resource_server_id = None
-    
-    # Check for existing user pools
-    try:
-        pools_response = cognito.list_user_pools(MaxResults=60)
-        for pool in pools_response.get('UserPools', []):
-            pool_name = pool['Name']
-            # First try exact match with expected_pool_name
-            if pool_name == expected_pool_name:
-                user_pool_id = pool['Id']
-                print(f"✅ Found user pool (exact match): {pool_name} (ID: {user_pool_id})")
-                break
-            # Then try other expected patterns
-            elif pool_name in expected_pool_names:
-                user_pool_id = pool['Id']
-                print(f"✅ Found user pool: {pool_name} (ID: {user_pool_id})")
-                break
-                
-        if not user_pool_id:
-            print("❌ No matching user pools found. Cannot refresh token.")
-            return None
-            
-        # Find resource server and client
-        try:
-            # Try different resource server IDs, prioritizing the config one
-            expected_resource_ids = [
-                expected_resource_server_id,
-                "monitoring_agent2039",
-                "monitoring-agentcore-gateway-id", 
-                "sample-agentcore-gateway-id"
-            ]
-            
-            for resource_id in expected_resource_ids:
-                try:
-                    resource_response = cognito.describe_resource_server(
-                        UserPoolId=user_pool_id,
-                        Identifier=resource_id
-                    )
-                    resource_server_id = resource_id
-                    print(f"✅ Found resource server: {resource_server_id}")
-                    break
-                except cognito.exceptions.ResourceNotFoundException:
-                    print(f"❌ Resource server '{resource_id}' not found, trying next...")
-                    continue
-                    
-            if not resource_server_id:
-                # List all resource servers to help debug
-                try:
-                    all_servers = cognito.list_resource_servers(UserPoolId=user_pool_id, MaxResults=50)
-                    print("❌ No matching resource server found. Available resource servers:")
-                    for server in all_servers.get('ResourceServers', []):
-                        print(f"  - ID: {server['Identifier']}, Name: {server['Name']}")
-                except Exception as list_error:
-                    print(f"❌ No resource server found and failed to list available servers: {list_error}")
-                return None
-                
-            # Find client
-            clients_response = cognito.list_user_pool_clients(UserPoolId=user_pool_id, MaxResults=60)
-            expected_client_name = config_data.get('agent_information', {}).get('monitoring_agent_model_info', {}).get('gateway_config', {}).get('inbound_auth', {}).get('cognito', {}).get('client_name', 'agentcore-client')
-            
-            for client in clients_response.get('UserPoolClients', []):
-                client_name = client['ClientName']
-                if expected_client_name in client_name:
-                    client_details = cognito.describe_user_pool_client(
-                        UserPoolId=user_pool_id, 
-                        ClientId=client['ClientId']
-                    )
-                    client_id = client['ClientId']
-                    client_secret = client_details['UserPoolClient'].get('ClientSecret')
-                    print(f"✅ Found client: {client_name} (ID: {client_id})")
-                    break
-                    
-            if not client_id:
-                print("❌ No matching client found")
-                return None
-                
-        except Exception as e:
-            print(f"❌ Error finding resource server or client: {e}")
-            return None
-            
-    except Exception as e:
-        print(f"❌ Error listing user pools: {e}")
-        return None
-    
-    # Generate new token
-    if user_pool_id and client_id and client_secret and resource_server_id:
-        print("🔄 Generating new access token...")
-        scope_string = f"{resource_server_id}/gateway:read {resource_server_id}/gateway:write"
-        
-        try:
-            token_response = get_token(user_pool_id, client_id, client_secret, scope_string, REGION_NAME)
-            
-            if "access_token" in token_response:
-                print("✅ Successfully generated new access token!")
-                return token_response["access_token"]
-            else:
-                print(f"❌ Failed to generate token: {token_response}")
-                return None
-                
-        except Exception as e:
-            print(f"❌ Error generating token: {e}")
-            return None
-    else:
-        print("❌ Missing required Cognito credentials")
-        return None
 
 # Check for existing credentials in multiple sources
 mcp_url = None
@@ -492,12 +379,10 @@ if credentials_path:
                 gateway_id = json_credentials['gateway_id']
                 print(f"Using existing gateway credentials from {credentials_path}")
                 
-                # Check if token is expired by parsing JWT payload
+                # Check if token should be refreshed
                 if gateway_config_info['credentials'].get('create_new_access_token'):
-                    print("⚠️ attempting refresh of the token...")
-                    # In this case, we refresh to get a new token to connect to the 
-                    # MCP gateway if the token is expired
-                    new_token = refresh_access_token()
+                    print("⚠️ Attempting refresh of the token...")
+                    new_token = _refresh_access_token()
                     if new_token:
                         access_token = new_token
                         # Update the credentials file
@@ -508,19 +393,6 @@ if credentials_path:
                         print("✅ Updated credentials with new access token")
     except Exception as e:
         print(f"Error reading JSON credentials file: {e}")
-
-# Priority 2: Check config file credentials (if JSON file didn't work)
-if not mcp_url:
-    use_existing_credentials = gateway_credentials.get('use_existing', False)
-    existing_gateway_id = gateway_credentials.get('gateway_id')
-    existing_mcp_url = gateway_credentials.get('mcp_url')
-    existing_access_token = gateway_credentials.get('access_token')
-    
-    if use_existing_credentials and existing_gateway_id and existing_mcp_url and existing_access_token:
-        mcp_url = existing_mcp_url
-        access_token = existing_access_token
-        gateway_id = existing_gateway_id
-        print("Using existing gateway credentials from config file...")
 
 if mcp_url and access_token and gateway_id:
     print(f"Gateway ID: {gateway_id}")
@@ -547,44 +419,67 @@ if not mcp_url or not access_token or not gateway_id:
         # Step 1: Create IAM role using utils.py function
         print("Creating IAM role...")
         role_name = f"{gateway_name}Role"
-        # First, create the agentcore role for smithy models, this will contain permissions to 
-        # allow all access to bedrock bedrockcore, bedrock, agent credential provider, pass role, 
-        # secrets manager, lambda functions and s3.
+        # Create the AgentCore gateway role with S3 and Smithy permissions
         agentcore_gateway_iam_role = create_agentcore_gateway_role_s3_smithy(role_name)
         role_arn = agentcore_gateway_iam_role['Role']['Arn']
         print(f"IAM role created: {role_arn}")
-        # Step 2: Setup Cognito
-        print("Setting up Cognito...")
+        # Step 2: Use existing Cognito setup
+        print("Using existing Cognito setup...")
+        
+        # Get configuration values from config file
         inbound_auth_config: Dict = gateway_config_info.get('inbound_auth')
         cognito_config: Dict = inbound_auth_config.get('cognito')
         logger.info(f"Going to use the inbound auth mechanism through cognito: {cognito_config}")
-        USER_POOL_NAME = cognito_config.get('user_pool_name', "monitoring-agentcore-gateway-pool")
-        RESOURCE_SERVER_ID = cognito_config.get('resource_server_id', "monitoring_agent2039")
-        RESOURCE_SERVER_NAME = cognito_config.get('resource_server_name', "agentcore-gateway2039")
-        # Flag to check for if a user pool needs to be created or not
-        CREATE_USER_POOL: bool = cognito_config.get('create_user_pool', False)
-        logger.info(f"Going to create the user pool: {CREATE_USER_POOL}")
+        
+        # Get values from config with defaults based on config.yaml
+        RESOURCE_SERVER_ID = cognito_config.get('resource_server_id', "monitoring_agent")
+        RESOURCE_SERVER_NAME = cognito_config.get('resource_server_name', "agentcore-gateway")
         CLIENT_NAME = cognito_config.get('client_name', "agentcore-client")
         SCOPES = cognito_config.get('scopes')
         logger.info(f"Going to use the following scopes from the config file: {SCOPES} for the monitoring agent.")
-        scope_string = f"{RESOURCE_SERVER_ID}/gateway:read {RESOURCE_SERVER_ID}/gateway:write"
+        
+        # Initialize Cognito client for user pool management
         cognito = boto3.client("cognito-idp", region_name=REGION_NAME)
-        # This fetches the user pool id if the given name exists or not, and if not then it creates a user
-        # pool with the name
-        user_pool_id = get_or_create_user_pool(cognito, USER_POOL_NAME, CREATE_USER_POOL)
-        print(f"User Pool ID: {user_pool_id}")
-        # This function gets or creates a cognito resource server within an existing user pool, ensuring that
-        # it has the specified scopes that are mentioned here from the config file.
+        
+        # Determine if we should create new user pool or use existing
+        create_user_pool = cognito_config.get('create_user_pool', False)
+        user_pool_name = cognito_config.get('user_pool_name', 'MCPServerPool')
+        
+        if create_user_pool:
+            # Create or get user pool using utils function
+            print(f"Creating/getting user pool: {user_pool_name}")
+            user_pool_id = get_or_create_user_pool(cognito, user_pool_name)
+        else:
+            # Use existing user pool from config
+            auth_info = gateway_config_info.get('auth_info', {})
+            discovery_url = auth_info.get('discovery_url')
+            if discovery_url:
+                # Extract pool_id from discovery URL
+                import re
+                match = re.search(r'/([^/]+)/\.well-known', discovery_url)
+                if match:
+                    user_pool_id = match.group(1)
+                    print(f"Using existing User Pool ID: {user_pool_id}")
+                else:
+                    raise ValueError(f"Could not extract pool_id from discovery_url: {discovery_url}")
+            else:
+                raise ValueError("No discovery_url found in config auth_info")
+        
+        # Create or get resource server and M2M client using utils functions
         get_or_create_resource_server(cognito, user_pool_id, RESOURCE_SERVER_ID, RESOURCE_SERVER_NAME, SCOPES)
         print("Resource server ensured.")
-        # This is machine to machine authentication, where this function first lists the user pools, and then
-        # if it is found then describes it and returns the auth client ID and secret id, else it creates one and 
-        # then returns it.
+        
         client_id, client_secret = get_or_create_m2m_client(cognito, user_pool_id, CLIENT_NAME, RESOURCE_SERVER_ID)
-        print(f"Client ID: {client_id}")
-        cognito_discovery_url = COGNITO_DISCOVERY_URL.format(region=REGION_NAME, 
-                                                             user_pool_id=user_pool_id)
-        logger.info(f"Going to use the cognito discovery URL: {cognito_discovery_url}")
+        
+        # Create scope string needed for token generation
+        scope_string = f"{RESOURCE_SERVER_ID}/gateway:read {RESOURCE_SERVER_ID}/gateway:write"
+        
+        # Set discovery URL based on user pool
+        pool_region = user_pool_id.split('_')[0] if '_' in user_pool_id else REGION_NAME
+        cognito_discovery_url = f"https://cognito-idp.{pool_region}.amazonaws.com/{user_pool_id}/.well-known/openid-configuration"
+        
+        print(f"Using Client ID: {client_id}")
+        logger.info(f"Using Cognito discovery URL: {cognito_discovery_url}")
         # Step 3: Check if Gateway exists, then create if needed
         print("Checking if gateway exists...")
         gateway_client = boto3.client('bedrock-agentcore-control', region_name=REGION_NAME)
@@ -738,10 +633,12 @@ if not mcp_url or not access_token or not gateway_id:
         else:
             created_targets = create_targets_from_config(gateway_id, gateway_config_info, gateway_config_info.get('bucket_name'))
             print(f"✅ Successfully created {len(created_targets)} targets")
-        # Step 5: Get access token
+        # Step 5: Get access token using utils function
         print("Getting access token...")
         token_response = get_token(user_pool_id, client_id, client_secret, scope_string, REGION_NAME)
         print(f"Token response: {token_response}")
+        if "error" in token_response:
+            raise RuntimeError(f"Failed to get access token: {token_response['error']}")
         access_token = token_response["access_token"]
         print(f"✅ OpenAPI Gateway created successfully!")
         print(f"Gateway ID: {gateway_id}")
@@ -846,7 +743,7 @@ def create_streamable_http_transport():
             logger.warning(f"Authentication failed, attempting to refresh token: {auth_error}")
             
             # Try to refresh the token
-            new_token = refresh_access_token()
+            new_token = _refresh_access_token()
             if new_token:
                 # Update credentials file with new token
                 json_credentials['access_token'] = new_token
@@ -893,9 +790,6 @@ def invoke_agent_with_mcp_session(user_message):
             print(f"Loaded {len(gateway_tools)} tools from Gateway...")
             # Create agent with Gateway MCP tools + memory hooks + observability hooks
             hooks = [monitoring_hooks]
-            if observability_hooks:
-                hooks.append(observability_hooks)
-
             # Initialize agent at module level
             agent = Agent(
                 system_prompt=MONITORING_AGENT_SYSTEM_PROMPT,
@@ -911,6 +805,42 @@ def invoke_agent_with_mcp_session(user_message):
 
 print(f"✅ Created monitoring agent with Gateway MCP tools!")
 
+def ask_agent(prompt_text: str, session_id: str) -> str:
+    token = None
+    try:
+        token = set_session_context(session_id)
+        return invoke_agent_with_mcp_session(prompt_text)
+    finally:
+        if token is not None:
+            try:
+                context.detach(token)
+            except Exception:
+                pass
+
+# --- add the interactive loop ---
+def interactive_cli(session_id: str):
+    print("\n🧪 Monitoring Agent CLI (type 'exit' to quit)")
+    print(f"session_id: {session_id}\n")
+    while True:
+        try:
+            q = input("you> ").strip()
+            if not q:
+                continue
+            if q.lower() in {"exit", "quit", "q"}:
+                print("bye 👋")
+                break
+            if q.lower() in {"help", "/help"}:
+                print("Commands: exit | help")
+                continue
+
+            resp = ask_agent(q, session_id)
+            print(f"agent> {resp}\n")
+        except KeyboardInterrupt:
+            print("\nbye 👋")
+            break
+        except Exception as e:
+            print(f"error: {e}\n")
+
 @app.entrypoint
 def invoke(payload):
     '''
@@ -918,11 +848,27 @@ def invoke(payload):
     This agent is created with tools from the MCP Gateway and can be
     invoked both locally and via agent ARN using boto3 bedrock-agentcore client.
     '''
-    user_message = payload.get("prompt", "You are a monitoring agent to help with AWS monitoring related queries.")
-    print(f"Going to invoke the agent with the following prompt: {user_message}")
-    
-    # Process the user input through the agent within MCP session
-    return invoke_agent_with_mcp_session(user_message)
+    # First, we will set the OTEL session baggage which will be used to emit traces, logs and metrics for
+    # each session, trace and span
+    try:
+        # initialize the response
+        response = None
+        context_token = set_session_context(args.session_id)
+        user_message = payload.get("prompt", "You are a monitoring agent to help with AWS monitoring related queries.")
+        print(f"Going to invoke the agent with the following prompt: {user_message}")
+        response = invoke_agent_with_mcp_session(user_message)
+        context.detach(context_token)
+    except Exception as e:
+        print(f"An error occurred while invoking the monitoring agent: {e}")
+        raise e
+    return response
 
 if __name__ == "__main__":
-    app.run()
+    args = parse_arguments()
+    logger.info(f"Arguments: {args}")
+    session_id = args.session_id
+
+    if args.interactive:
+        interactive_cli(session_id)
+    else:
+        app.run()

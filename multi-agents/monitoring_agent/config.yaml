@@ -29,10 +29,10 @@ agent_information:
       max_tokens: 2048
     # MEMORY CONFIGURATION FOR THE MONITORING AGENT
     # If your memory is already created, please provide the credentials here
-    use_existing_memory: true
+    use_existing_memory: yes
     memory_credentials:
       # fetch this from your AWS console
-      id: MonitoringAgentGW_memory_new-eYYp4xGaII
+      id: MonitoringAgentGWNew_memory_1754924773-eKBLod61AH
     memory_allocation:
       # An actor refers to an entity such as an end user or an agent that interacts with the
       # agent application. For example, in a coding use case, an actor is a developer asking
@@ -44,13 +44,12 @@ agent_information:
       # A namespace is used to logically group and organize the long term memories, these will
       # be created on the fly using the strategies that are used in the memory for the agent.
     # GATEWAY CONFIGURATION FOR THE MONITORING AGENT
-    # Gateway configuration for the monitoring agent
     gateway_config:
       # this is the name of the gateway for this agent and the tools
       # that this agent has access to - this can be an existing gateway in the case
       # of which you would have to configure the access token for inbound auth of
       # this gateway
-      name: "monitorgtwnewmadhur"
+      name: "monitoringagentgw2039"
       # this is the name of the bucket where the target files (openapi or smithy) will
       # be uploaded from
       bucket_name: fmbench-deep-dive
@@ -64,14 +63,21 @@ agent_information:
       # as endpoints to call through the tool gateway primitive
       # These can be json files for now are supported, can be lambda functions as well
       # This represents the target type for the gateway
-      existing_target: true
+      existing_target: false
       target_name: CloudWatchMonitoring
       target_type: "lambda"  # Options: "openAPI", "lambda", or "smithy"
+      # these are the targets that will be used by the agent 
       targets:
         lambda:
           - function_name: "monitoring-agent-lambda"
             role_arn: arn:aws:lambda:us-west-2:218208277580:function:monitoring-agent-lambda
             config_struct: tools/lambda_monitoring_tools.json
+      # This is the cognito discovery URL and client id to get the bearer token
+      auth_info:
+        # this is the cognito discovery URL
+        # generate this by running set_up_idp.py file
+        discovery_url: https://cognito-idp.us-west-2.amazonaws.com/us-west-2_byiEVoxdp/.well-known/openid-configuration
+        client_id: 3uqu507ofhanh4jspkab8cnqqc
       # IAM Role Configuration
       # this is the IAM role that will be attached to this gateway
       iam_role:
@@ -108,3 +114,38 @@ agent_information:
         # then it would make sense to refresh the access token for your
         # agent that talks to the gateway
         create_new_access_token: true  # Enable automatic token refresh on 401 errors
+      
+# Identity Provider (IdP) setup configuration for prerequisite setup
+idp_setup:
+  # Configuration for setting up Cognito User Pool for agent authentication
+  cognito:
+    # User pool configuration
+    user_pool:
+      name: "MCPServerPool"
+      password_policy:
+        minimum_length: 8
+    # App client configuration  
+    app_client:
+      name: "MCPServerPoolClient"
+      generate_secret: false
+      explicit_auth_flows:
+        - "ALLOW_USER_PASSWORD_AUTH"
+        - "ALLOW_REFRESH_TOKEN_AUTH"
+    # Default user for testing/setup
+    default_user:
+      username: "testuser"
+      temporary_password: "Temp123!"
+      permanent_password: "MyPassword123!"
+      message_action: "SUPPRESS"
+
+# this is information about the cloudwatch related tools that will be used
+# in the agent
+cloudwatch_agent_resources:
+  # this is the log group name that will be used to create the log group
+  # and the log stream
+  # this should be the same as what is given in the .env file for 
+  # observability
+  log_group_name: "agents/monitoring-agent"
+  # this is the log stream name that will be used to create the log stream
+  # within the log group
+  log_stream_name: "monitoringagent"

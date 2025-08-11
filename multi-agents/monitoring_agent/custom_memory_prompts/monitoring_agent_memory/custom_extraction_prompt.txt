@@ -18,5 +18,7 @@ Pay special attention to:
 - Resource utilization patterns and trends
 - Log patterns and error frequencies
 
+IMPORTANT: For whatever information that might be helpful in downstream processes with monitoring metrics, please extract that.
+
 Format each extracted fact as a clear, concise statement that could stand alone as a reference point in a monitoring dashboard.
 Assistant:
