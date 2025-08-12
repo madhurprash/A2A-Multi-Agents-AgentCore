@@ -63,10 +63,8 @@ Use the standalone deployment script:
 
 ```bash
 # Deploy the Lambda function
-python deploy.py --role-arn arn:aws:iam::ACCOUNT_ID:role/YourLambdaRole --region us-west-2
-
-# Deploy and test
-python deploy.py --role-arn arn:aws:iam::ACCOUNT_ID:role/YourLambdaRole --test
+chmod +x deploy_lambda.sh
+./deploy_lambda.sh
 ```
 
 ## File Structure

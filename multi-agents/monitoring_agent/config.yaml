@@ -49,7 +49,7 @@ agent_information:
       # that this agent has access to - this can be an existing gateway in the case
       # of which you would have to configure the access token for inbound auth of
       # this gateway
-      name: "monitoringagentgw2039"
+      name: "monitorgatewayworkdaynew"
       # this is the name of the bucket where the target files (openapi or smithy) will
       # be uploaded from
       bucket_name: fmbench-deep-dive
@@ -69,15 +69,15 @@ agent_information:
       # these are the targets that will be used by the agent 
       targets:
         lambda:
-          - function_name: "monitoring-agent-lambda"
-            role_arn: arn:aws:lambda:us-west-2:218208277580:function:monitoring-agent-lambda
+          - function_name: "monitoring-agent"
+            role_arn: arn:aws:lambda:us-west-2:218208277580:function:monitoring-agent
             config_struct: tools/lambda_monitoring_tools.json
       # This is the cognito discovery URL and client id to get the bearer token
       auth_info:
         # this is the cognito discovery URL
         # generate this by running set_up_idp.py file
-        discovery_url: https://cognito-idp.us-west-2.amazonaws.com/us-west-2_byiEVoxdp/.well-known/openid-configuration
-        client_id: 3uqu507ofhanh4jspkab8cnqqc
+        discovery_url: https://cognito-idp.us-west-2.amazonaws.com/us-west-2_EeU9Cb4E3/.well-known/openid-configuration
+        client_id: 72fm46m3ceffpsrgh6o8qr3rqm
       # IAM Role Configuration
       # this is the IAM role that will be attached to this gateway
       iam_role:

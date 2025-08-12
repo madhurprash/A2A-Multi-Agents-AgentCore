@@ -139,6 +139,24 @@
         },
         "required": ["dashboardName"]
       }
+    }, 
+    {
+    "name": "create_incident_jira_ticket",
+    "description": "Create a simple issue in the Jira project backlog. Project and issue type are configured via environment variables.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "summary": {
+          "type": "string",
+          "description": "Short title for the issue (under 120 characters)."
+        },
+        "description": {
+          "type": "string",
+          "description": "Detailed description of the issue or incident."
+        }
+      },
+      "required": ["summary", "description"]
+      }
     }
   ]
 }

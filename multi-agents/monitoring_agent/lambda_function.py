@@ -1,8 +1,10 @@
 import json
+import os
 import boto3
 import logging
+import requests
 from datetime import datetime, timedelta
-from typing import Dict, Any, Optional
+from typing import Optional
 
 # Configure logging
 logger = logging.getLogger()
@@ -38,6 +40,8 @@ def lambda_handler(event, context):
             return handle_analyze_log_group(event)
         elif tool_name == 'get_dashboard_summary':
             return handle_get_dashboard_summary(event)
+        elif tool_name == 'create_incident_jira_ticket':
+            return handle_create_jira_ticket(event)
         else:
             return {
                 'statusCode': 400,
@@ -242,7 +246,7 @@ def handle_cross_account_setup(event):
     try:
         # Test cross-account access
         test_client = get_cross_account_client('sts', account_id, role_name)
-        caller_identity = test_client.get_caller_identity()
+        test_client.get_caller_identity()
         
         logger.info(f"Successfully verified cross-account access for account {account_id}")
         return {
@@ -361,7 +365,7 @@ def handle_get_dashboard_summary(event):
         cloudwatch = get_cross_account_client('cloudwatch', account_id, role_name)
         
         # Get dashboard details
-        response = cloudwatch.get_dashboard(DashboardName=dashboard_name)
+        cloudwatch.get_dashboard(DashboardName=dashboard_name)
         
         dashboard = {
             'name': dashboard_name,
@@ -379,4 +383,138 @@ def handle_get_dashboard_summary(event):
         return {
             'statusCode': 500,
             'body': json.dumps({'error': str(e)})
+        }
+
+# Get Jira configuration from environment variables
+JIRA_API_TOKEN = os.environ.get("JIRA_API_TOKEN")
+JIRA_USERNAME = os.environ.get("JIRA_USERNAME") 
+JIRA_INSTANCE_URL = os.environ.get("JIRA_INSTANCE_URL")
+JIRA_CLOUD = os.environ.get("JIRA_CLOUD", "True").lower() == "true"
+DEFAULT_PROJECT_KEY = os.environ.get("PROJECT_KEY", "AIRT")
+
+class JiraAPIWrapper:
+    def __init__(self, username=None, api_token=None, instance_url=None, is_cloud=True):
+        self.username = username or JIRA_USERNAME
+        self.api_token = api_token or JIRA_API_TOKEN
+        self.instance_url = instance_url or JIRA_INSTANCE_URL
+        if self.instance_url:
+            self.instance_url = self.instance_url.rstrip('/')
+        self.is_cloud = is_cloud if is_cloud is not None else JIRA_CLOUD
+        
+        logger.info(f"JiraAPIWrapper initialized with:")
+        logger.info(f"  - Username: {self.username}")
+        logger.info(f"  - Instance URL: {self.instance_url}")
+        logger.info(f"  - Cloud: {self.is_cloud}")
+        
+    def issue_create(self, fields_json):
+        """Creates a Jira issue using the Jira REST API."""
+        # Validate required attributes
+        if not self.username:
+            raise ValueError("JIRA_USERNAME is not set")
+        if not self.api_token:
+            raise ValueError("JIRA_API_TOKEN is not set")
+        if not self.instance_url:
+            raise ValueError("JIRA_INSTANCE_URL is not set")
+        
+        # Set up auth and headers
+        auth = (self.username, self.api_token)
+        headers = {
+            "Accept": "application/json",
+            "Content-Type": "application/json"
+        }
+        
+        # API endpoint for issue creation - using API v3 for Cloud
+        url = f"{self.instance_url}/rest/api/3/issue"
+        
+        logger.info(f"Creating issue at: {url}")
+        
+        # Parse the JSON to extract project key for logging
+        fields = json.loads(fields_json)
+        if "fields" in fields and "project" in fields["fields"]:
+            logger.info(f"Creating issue in project: {fields['fields']['project']['key']}")
+            logger.info(f"Issue summary: {fields['fields']['summary']}")
+        
+        # Make the API request
+        response = requests.post(url, auth=auth, headers=headers, data=fields_json)
+        
+        # Check response status
+        if response.status_code == 201:
+            return response.json()
+        else:
+            logger.error(f"Error: {response.status_code} - {response.text}")
+            raise Exception(f"Failed to create issue: {response.text}")
+
+def handle_create_jira_ticket(event):
+    """
+    Creates a new issue in Jira with the specified details.
+    """
+    summary = event.get("summary")
+    description = event.get("description")
+    
+    if not summary or not description:
+        return {
+            'statusCode': 400,
+            'body': json.dumps({'error': 'summary and description are required'})
+        }
+    
+    try:
+        # Use project key from environment variables
+        project_key = DEFAULT_PROJECT_KEY
+        logger.info(f"Creating Jira issue for project: {project_key}")
+        
+        # Create Jira API wrapper
+        jira = JiraAPIWrapper()
+        
+        # Create issue fields - formatted for Jira Cloud API v3
+        issue_fields = {
+            "fields": {
+                "summary": summary,
+                "description": {
+                    "type": "doc",
+                    "version": 1,
+                    "content": [
+                        {
+                            "type": "paragraph",
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": description
+                                }
+                            ]
+                        }
+                    ]
+                },
+                "issuetype": {"name": "Task"},
+                "project": {"key": project_key}
+            }
+        }
+        
+        # Convert to JSON
+        issue_fields_json = json.dumps(issue_fields)
+        logger.info(f"Sending JSON: {issue_fields_json}")
+        
+        # Create the issue
+        result = jira.issue_create(issue_fields_json)
+        logger.info(f"CREATED THE JIRA TICKET! Check your JIRA dashboard.")
+        
+        # Return success result
+        return {
+            "statusCode": 200,
+            "body": json.dumps({
+                "success": True,
+                "message": "Jira issue created successfully",
+                "issue_key": result.get("key"),
+                "issue_id": result.get("id"),
+                "issue_url": f"{jira.instance_url}/browse/{result.get('key')}",
+                "created_at": datetime.now(datetime.timezone.utc).isoformat()
+            })
+        }
+        
+    except Exception as e:
+        logger.error(f"Error occurred: {str(e)}")
+        return {
+            "statusCode": 500, 
+            "body": json.dumps({
+                "error": f"Error creating Jira issue: {str(e)}"
+            })
         }

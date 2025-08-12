@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Script to delete all Amazon Bedrock AgentCore Gateways in your AWS account.
-WARNING: This will permanently delete all gateways. Use with caution.
+Script to delete all Amazon Bedrock AgentCore Gateways and their targets in your AWS account.
+WARNING: This will permanently delete all gateways and their associated targets. Use with caution.
 """
 
 import boto3
@@ -60,11 +60,116 @@ def list_all_gateways(client, region_name=None):
         print(f"❌ Unexpected error listing gateways: {str(e)}")
         return []
 
-def delete_gateway(client, gateway_id, force=False):
+def list_gateway_targets(client, gateway_id):
     """
-    Delete a single gateway
+    List all targets for a specific gateway
     """
     try:
+        print(f"🔍 Listing targets for gateway: {gateway_id}")
+        
+        targets = []
+        next_token = None
+        
+        while True:
+            kwargs = {
+                'gatewayIdentifier': gateway_id,
+                'maxResults': 100  # Maximum allowed per API spec
+            }
+            if next_token:
+                kwargs['nextToken'] = next_token
+            
+            response = client.list_gateway_targets(**kwargs)
+            
+            if 'items' in response:
+                targets.extend(response['items'])
+            
+            # Check for pagination
+            next_token = response.get('nextToken')
+            if not next_token:
+                break
+        
+        print(f"📊 Found {len(targets)} targets for gateway {gateway_id}")
+        
+        for target in targets:
+            print(f"  - Target ID: {target.get('targetId', 'N/A')}")
+            print(f"    Name: {target.get('name', 'N/A')}")
+            print(f"    Type: {target.get('type', 'N/A')}")
+            print(f"    Status: {target.get('status', 'N/A')}")
+            print()
+        
+        return targets
+    
+    except ClientError as e:
+        error_code = e.response.get('Error', {}).get('Code', 'Unknown')
+        print(f"❌ Error listing targets for gateway {gateway_id}: {error_code} - {str(e)}")
+        return []
+    except Exception as e:
+        print(f"❌ Unexpected error listing targets for gateway {gateway_id}: {str(e)}")
+        return []
+
+def delete_gateway_target(client, gateway_id, target_id):
+    """
+    Delete a single gateway target
+    """
+    try:
+        print(f"🗑️  Deleting target: {target_id} from gateway: {gateway_id}")
+        
+        response = client.delete_gateway_target(
+            gatewayIdentifier=gateway_id,
+            targetId=target_id
+        )
+        print(f"✅ Successfully deleted target: {target_id}")
+        return True
+        
+    except ClientError as e:
+        error_code = e.response.get('Error', {}).get('Code', 'Unknown')
+        error_message = e.response.get('Error', {}).get('Message', str(e))
+        
+        if error_code == 'ResourceNotFoundException':
+            print(f"⚠️  Target {target_id} not found (may have been already deleted)")
+        else:
+            print(f"❌ Error deleting target {target_id}: {error_code} - {error_message}")
+        return False
+        
+    except Exception as e:
+        print(f"❌ Unexpected error deleting target {target_id}: {str(e)}")
+        return False
+
+def delete_gateway(client, gateway_id, force=False):
+    """
+    Delete a single gateway and all its targets
+    """
+    try:
+        print(f"🗑️  Deleting gateway and all targets: {gateway_id}")
+        
+        # First, delete all targets for this gateway
+        targets = list_gateway_targets(client, gateway_id)
+        
+        if targets:
+            print(f"🎯 Deleting {len(targets)} targets first...")
+            deleted_targets = 0
+            failed_targets = 0
+            
+            for target in targets:
+                target_id = target.get('targetId')
+                if target_id:
+                    if delete_gateway_target(client, gateway_id, target_id):
+                        deleted_targets += 1
+                    else:
+                        failed_targets += 1
+                    
+                    # Small delay to avoid rate limiting
+                    time.sleep(0.1)
+            
+            print(f"📊 Target deletion summary:")
+            print(f"  ✅ Successfully deleted: {deleted_targets}")
+            print(f"  ❌ Failed to delete: {failed_targets}")
+            
+            if failed_targets > 0 and not force:
+                print(f"⚠️  Some targets failed to delete. Use --force to proceed anyway.")
+                return False
+        
+        # Now delete the gateway itself
         print(f"🗑️  Deleting gateway: {gateway_id}")
         
         # The API uses 'gatewayIdentifier' not 'gatewayId'
