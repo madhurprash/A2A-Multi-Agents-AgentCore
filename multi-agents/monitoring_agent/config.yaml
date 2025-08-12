@@ -32,7 +32,7 @@ agent_information:
     use_existing_memory: yes
     memory_credentials:
       # fetch this from your AWS console
-      id: MonitoringAgentGWNew_memory_1754924773-eKBLod61AH
+      id: MonitoringAgentGWNew_memory_1755008733-7zQIvrHLUs
     memory_allocation:
       # An actor refers to an entity such as an end user or an agent that interacts with the
       # agent application. For example, in a coding use case, an actor is a developer asking
@@ -101,7 +101,7 @@ agent_information:
             - ScopeName: "gateway:write"
               ScopeDescription: "Write access"
       # This is if the agent is already configured and needs to be invokeds
-      agent_arn:
+      agent_arn: "arn:aws:bedrock-agentcore:us-west-2:218208277580:runtime/monitoring_agent-7m6tVG3Pv6"
       # set this to false if the agent arn is provided from above
       launch_agentcore_runtime: true
       # this is the runtime execution role for the agent that will be used 

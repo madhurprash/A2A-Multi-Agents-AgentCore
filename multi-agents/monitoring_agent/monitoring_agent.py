@@ -47,29 +47,34 @@ from opentelemetry import context, baggage
 from bedrock_agentcore.memory.constants import StrategyType
 # This is for the strands prebuilt tool
 from strands_tools.agent_core_memory import AgentCoreMemoryToolProvider
-# Configure the root strands logger
-logging.getLogger("strands").setLevel(logging.DEBUG)
-# ────────── ENABLE DEBUG LOGGING ──────────
-# logging.basicConfig(level=logging.DEBUG)                             
-# boto3.set_stream_logger('', logging.DEBUG)                          
-# logging.getLogger('botocore').setLevel(logging.DEBUG)               
-# logging.getLogger('urllib3').setLevel(logging.DEBUG)               
-# import httpx      # or just import httpcore if you prefer
-# logging.getLogger('httpx').setLevel(logging.DEBUG)
-# logging.getLogger('httpcore').setLevel(logging.DEBUG)
-# logging.getLogger('strands').setLevel(logging.DEBUG)
-# logging.getLogger('strands.tools.mcp').setLevel(logging.DEBUG)
-# logging.getLogger('mcp.client').setLevel(logging.DEBUG)
+# Configure loggers - suppress debug output for cleaner UI
+logging.getLogger("strands").setLevel(logging.WARNING)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+logging.getLogger("botocore").setLevel(logging.WARNING)
+logging.getLogger("urllib3").setLevel(logging.WARNING)
+logging.getLogger("strands.tools.mcp").setLevel(logging.WARNING)
+logging.getLogger("mcp.client").setLevel(logging.WARNING)
+logging.getLogger("bedrock_agentcore").setLevel(logging.WARNING)
 # First, begin by creating the authorizer and a gateway, in this example, 
 # we will attach a single MCP server and locally defined tools to the gateway
 from bedrock_agentcore_starter_toolkit.operations.gateway import GatewayClient
 from strands.hooks import AfterInvocationEvent, HookProvider, HookRegistry, MessageAddedEvent
 
-# Add a handler to see the logs
-logging.basicConfig(
-    format="%(levelname)s | %(name)s | %(message)s", 
-    handlers=[logging.StreamHandler()]
-)
+# Clean logging configuration for interactive mode
+if len(sys.argv) > 1 and "--interactive" in sys.argv:
+    # Minimal logging for interactive CLI
+    logging.basicConfig(
+        format="%(message)s", 
+        level=logging.ERROR,
+        handlers=[logging.StreamHandler()]
+    )
+else:
+    # Standard logging for non-interactive mode
+    logging.basicConfig(
+        format="%(levelname)s | %(name)s | %(message)s", 
+        handlers=[logging.StreamHandler()]
+    )
 sys.path.insert(0, ".")
 sys.path.insert(1, "..")
 from utils import *
@@ -120,29 +125,34 @@ def set_session_context(session_id: str):
 # environment variables to enable python distro, python configurator, 
 # protocol over which the telemetry data will be sent, 
 # the headers (session id, trace id, etc), etc.
-otel_vars = [
-    "OTEL_PYTHON_DISTRO",
-    "OTEL_PYTHON_CONFIGURATOR",
-    "OTEL_EXPORTER_OTLP_PROTOCOL",
-    "OTEL_EXPORTER_OTLP_LOGS_HEADERS",
-    "OTEL_RESOURCE_ATTRIBUTES",
-    "AGENT_OBSERVABILITY_ENABLED",
-    "OTEL_TRACES_EXPORTER"
-]
-print("Open telemetry configuration:")
-for var in otel_vars:
-    value = os.getenv(var)
-    if value:
-        print(f"{var}: {value}")
+# Only show OTEL config in non-interactive mode
+if "--interactive" not in sys.argv:
+    otel_vars = [
+        "OTEL_PYTHON_DISTRO",
+        "OTEL_PYTHON_CONFIGURATOR",
+        "OTEL_EXPORTER_OTLP_PROTOCOL",
+        "OTEL_EXPORTER_OTLP_LOGS_HEADERS",
+        "OTEL_RESOURCE_ATTRIBUTES",
+        "AGENT_OBSERVABILITY_ENABLED",
+        "OTEL_TRACES_EXPORTER"
+    ]
+    print("Open telemetry configuration:")
+    for var in otel_vars:
+        value = os.getenv(var)
+        if value:
+            print(f"{var}: {value}")
 
 
-# set a logger
-logging.basicConfig(format='[%(asctime)s] p%(process)s {%(filename)s:%(lineno)d} %(levelname)s - %(message)s', level=logging.INFO)
+# Set logger with appropriate level based on mode
+if "--interactive" in sys.argv:
+    logging.basicConfig(format='%(levelname)s - %(message)s', level=logging.WARNING)
+else:
+    logging.basicConfig(format='[%(asctime)s] p%(process)s {%(filename)s:%(lineno)d} %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Load the config file. 
 config_data = load_config('config.yaml')
-logger.info(f"Loaded config from local file system: {json.dumps(config_data, indent=2)}")
+logger.info(f"Configuration loaded successfully")
 from typing import Dict, List
 
 # Initialize observability for this agent
@@ -161,6 +171,8 @@ try:
 except ClientError as e:
     if e.response['Error']['Code'] == 'ResourceAlreadyExistsException':
         print(f"Log group already exists: {e}")
+        # This is expected behavior, continue without error
+        pass
     else:
         print(f"Error while creating log group: {e}")
         raise e
@@ -174,7 +186,9 @@ try:
     print(f"Created the log stream: {response}")
 except ClientError as e:
     if e.response['Error']['Code'] == 'ResourceAlreadyExistsException':
-        print(f"Log stream already exists: {e}")
+        print(f"Log stream '{cloudwatch_agent_info.get('log_stream_name')}' already exists, continuing...")
+        # This is expected behavior, continue without error
+        pass
     else:
         print(f"Error while creating log stream: {e}")
         raise e
@@ -683,7 +697,7 @@ if not mcp_url:
     if not mcp_url:
         raise ValueError("mcp_url cannot be None - gateway setup failed")
         
-prompt_template_path: str = f'{PROMPT_TEMPLATE_DIR}/{config_data['agent_information']['prompt_templates'].get('monitoring_agent', 'monitoring_agent_prompt_template.txt')}'
+prompt_template_path: str = f'{PROMPT_TEMPLATE_DIR}/{config_data["agent_information"]["prompt_templates"].get("monitoring_agent", "monitoring_agent_prompt_template.txt")}'
 logger.info(f"Going to read the monitoring agent prompt template from: {prompt_template_path}")
 with open(prompt_template_path, 'r', encoding='utf-8') as f:
     MONITORING_AGENT_SYSTEM_PROMPT = f.read().strip()
@@ -817,6 +831,56 @@ def ask_agent(prompt_text: str, session_id: str) -> str:
             except Exception:
                 pass
 
+def filter_agent_output(output: str) -> str:
+    """
+    Filter agent output to show only relevant information for users.
+    Remove debug logs, technical details, and focus on:
+    - Tool calls
+    - Memory operations 
+    - Actual agent responses
+    """
+    if not output:
+        return output
+    
+    lines = output.split('\n')
+    filtered_lines = []
+    
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+            
+        # Skip debug logs and technical output
+        skip_patterns = [
+            'DEBUG', 'INFO:', 'WARNING:', 'ERROR:',
+            'protocol version:', 'Request: POST', 'HTTP/1.1',
+            'streaming response', 'tool configurations',
+            'loaded tool config', 'tools configured',
+            'waiting for close signal', 'session initialized',
+            'received tool result', 'mapping MCP text content',
+            'tool execution completed', 'streaming messages'
+        ]
+        
+        if any(pattern in line for pattern in skip_patterns):
+            continue
+            
+        # Keep useful information - tool calls, memory operations, analysis
+        keep_patterns = [
+            'Tool #', '___',  # Any tool with ___ pattern
+            'memory', 'Memory', 'MEMORY',
+            'analysis', 'Analysis', 'ANALYSIS',
+            'result', 'Result', 'RESULT',
+            'error', 'Error', 'ERROR',
+            'alarm', 'Alarm', 'ALARM',
+            'dashboard', 'Dashboard', 'DASHBOARD',
+            'log', 'Log', 'LOG'
+        ]
+        
+        if any(pattern in line for pattern in keep_patterns) or len(line) > 50:
+            filtered_lines.append(line)
+    
+    return '\n'.join(filtered_lines) if filtered_lines else output
+
 # --- add the interactive loop ---
 def interactive_cli(session_id: str):
     print("\n🧪 Monitoring Agent CLI (type 'exit' to quit)")
@@ -834,7 +898,9 @@ def interactive_cli(session_id: str):
                 continue
 
             resp = ask_agent(q, session_id)
-            print(f"agent> {resp}\n")
+            # Filter and display clean response
+            clean_resp = filter_agent_output(resp)
+            print(f"agent> {clean_resp}\n")
         except KeyboardInterrupt:
             print("\nbye 👋")
             break

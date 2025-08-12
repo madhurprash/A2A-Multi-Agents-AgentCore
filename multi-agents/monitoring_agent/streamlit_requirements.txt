@@ -1,0 +1,5 @@
+streamlit
+pandas
+boto3
+pyyaml
+python-dotenv

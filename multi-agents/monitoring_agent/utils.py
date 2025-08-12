@@ -24,10 +24,10 @@ def load_config(config_file: Union[Path, str]) -> Optional[Dict]:
     """
     try:
         config_data: Optional[Dict] = None
-        logger.info(f"Loading config from local file system: {config_file}")
+        logger.debug(f"Loading config from local file system: {config_file}")
         content = Path(config_file).read_text()
         config_data = yaml.safe_load(content)
-        logger.info(f"Loaded config from local file system: {config_data}")
+        logger.debug(f"Successfully loaded config from: {config_file}")
     except Exception as e:
         logger.error(f"Error loading config from local file system: {e}")
         config_data = None
