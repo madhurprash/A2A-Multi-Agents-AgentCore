@@ -255,38 +255,55 @@ class StreamlitMonitoringApp:
         Transform your AWS troubleshooting experience from hours of manual work to minutes of intelligent automation.
         """)
         
-        # Pain Points Section
-        col1, col2 = st.columns(2)
+        # AgentCore Workflow Section
+        st.markdown("""
+        ## 🔄 AgentCore Intelligent Workflow
         
-        with col1:
-            st.markdown("### 😫 Current Pain Points")
-            
-            pain_points = [
-                "**Multi-Step Process**: Check CloudWatch dashboards → Sift through log groups → Dive into log chunks",
-                "**Manual Correlation**: Manually correlate logs with metrics across different services",
-                "**Time-Consuming Analysis**: Hours spent understanding root causes of AWS service issues",
-                "**Fragmented Workflow**: Switch between multiple AWS consoles and tools",
-                "**Documentation Burden**: Manual creation of Jira tickets with all relevant details",
-                "**Knowledge Gaps**: Difficulty identifying patterns and connections across services"
-            ]
-            
-            for i, point in enumerate(pain_points, 1):
-                st.markdown(f'<div class="pain-point"><strong>{i}.</strong> {point}</div>', unsafe_allow_html=True)
+        ### How AgentCore Transforms AWS Troubleshooting
         
-        with col2:
-            st.markdown("### ✅ AgentCore Solution")
-            
-            solutions = [
-                "**Intelligent Automation**: AI-powered analysis of CloudWatch logs and metrics",
-                "**Automated Correlation**: Smart correlation of logs, metrics, and anomalies",
-                "**Rapid Root Cause Analysis**: Minutes instead of hours for issue identification",
-                "**Unified Interface**: Single chat interface for all AWS troubleshooting tasks",
-                "**Auto-Documentation**: Automatic Jira ticket creation with comprehensive details",
-                "**Pattern Recognition**: Machine learning identifies recurring issues and trends"
-            ]
-            
-            for i, solution in enumerate(solutions, 1):
-                st.markdown(f'<div class="solution-point"><strong>{i}.</strong> {solution}</div>', unsafe_allow_html=True)
+        #### 1. **Intelligent Gateway & Tool Selection**
+        The AgentCore gateway acts as a smart orchestrator that:
+        - **Analyzes** your request to understand intent and context
+        - **Selects** the most appropriate tools from the gateway's toolbox
+        - **Routes** requests to specialized AWS monitoring tools (CloudWatch, Logs, Metrics)
+        - **Coordinates** multi-tool workflows for complex analysis tasks
+        
+        #### 2. **Observability-Driven Orchestration**
+        The orchestrator leverages observability data to:
+        - **Monitor** tool performance and response times
+        - **Track** which tools provide the most valuable insights
+        - **Learn** from past successful troubleshooting patterns
+        - **Adapt** tool selection based on system context and history
+        
+        #### 3. **Memory-Enhanced Tool Selection**
+        AgentCore's memory system enables:
+        - **Context Retention**: Remember previous issues and their solutions
+        - **Pattern Recognition**: Identify recurring problems and optimal tool chains
+        - **Personalization**: Adapt to your team's preferred troubleshooting approaches
+        - **Knowledge Building**: Accumulate expertise over time for better recommendations
+        
+        #### 4. **Gateway Tool Categories**
+        
+        **📊 Monitoring Tools:**
+        - CloudWatch metrics analysis
+        - Custom dashboard creation
+        - Real-time alerting setup
+        
+        **📋 Log Analysis Tools:**
+        - Log Insights queries
+        - Error pattern detection
+        - Cross-service correlation
+        
+        **🔍 Diagnostic Tools:**
+        - Performance bottleneck identification
+        - Resource utilization analysis
+        - Dependency mapping
+        
+        **📝 Documentation Tools:**
+        - Automated report generation
+        - Jira ticket creation
+        - Runbook development
+        """)
         
         
         # Call to Action

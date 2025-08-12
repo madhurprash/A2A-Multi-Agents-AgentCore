@@ -470,23 +470,19 @@ class EnhancedStreamlitMonitoringApp:
             pain_points = [
                 {
                     "title": "Multi-Step Manual Process",
-                    "description": "Navigate between CloudWatch dashboards, log groups, and individual log entries",
-                    "time": "⏱️ 30-60 minutes per issue"
+                    "description": "Navigate between CloudWatch dashboards, log groups, and individual log entries"
                 },
                 {
                     "title": "Complex Log Analysis",
-                    "description": "Manually correlate logs across multiple services and time periods",
-                    "time": "⏱️ 45-90 minutes per correlation"
+                    "description": "Manually correlate logs across multiple services and periods"
                 },
                 {
                     "title": "Root Cause Investigation", 
-                    "description": "Piece together clues from different AWS services to identify the actual problem",
-                    "time": "⏱️ 1-3 hours per incident"
+                    "description": "Piece together clues from different AWS services to identify the actual problem"
                 },
                 {
                     "title": "Documentation & Ticketing",
-                    "description": "Create detailed Jira tickets with logs, metrics, and analysis",
-                    "time": "⏱️ 20-30 minutes per ticket"
+                    "description": "Create detailed Jira tickets with logs, metrics, and analysis"
                 }
             ]
             
@@ -495,7 +491,6 @@ class EnhancedStreamlitMonitoringApp:
                 <div class="pain-point">
                     <h4>{i}. {point['title']}</h4>
                     <p>{point['description']}</p>
-                    <small style="color: #E53E3E; font-weight: bold;">{point['time']}</small>
                 </div>
                 """, unsafe_allow_html=True)
         
@@ -505,23 +500,19 @@ class EnhancedStreamlitMonitoringApp:
             solutions = [
                 {
                     "title": "Unified AI Interface",
-                    "description": "Single chat interface that intelligently queries all relevant AWS services",
-                    "time": "⏱️ 2-5 minutes per query"
+                    "description": "Single chat interface that intelligently queries all relevant AWS services"
                 },
                 {
                     "title": "Automated Log Correlation",
-                    "description": "AI automatically correlates logs, metrics, and traces across services",
-                    "time": "⏱️ 30 seconds - 2 minutes"
+                    "description": "AI automatically correlates logs, metrics, and traces across services"
                 },
                 {
                     "title": "Intelligent Root Cause Analysis",
-                    "description": "Machine learning identifies patterns and provides probable causes",
-                    "time": "⏱️ 1-5 minutes per analysis"
+                    "description": "Machine learning identifies patterns and provides probable causes"
                 },
                 {
                     "title": "Auto-Generated Documentation",
-                    "description": "Comprehensive Jira tickets created automatically with all relevant data",
-                    "time": "⏱️ 30 seconds automated"
+                    "description": "Comprehensive Jira tickets created automatically with all relevant data"
                 }
             ]
             
@@ -530,32 +521,59 @@ class EnhancedStreamlitMonitoringApp:
                 <div class="solution-point">
                     <h4>{i}. {solution['title']}</h4>
                     <p>{solution['description']}</p>
-                    <small style="color: #38A169; font-weight: bold;">{solution['time']}</small>
                 </div>
                 """, unsafe_allow_html=True)
         
-        # Enhanced benefits section with real metrics
+        # AgentCore Workflow section
         st.markdown("---")
-        st.markdown("### 🚀 Measurable Business Impact")
+        st.markdown("### 🔄 AgentCore Intelligent Workflow")
         
-        col1, col2, col3, col4 = st.columns(4)
+        st.markdown("""
+        ## How AgentCore Transforms AWS Troubleshooting
         
-        metrics_data = [
-            ("90%", "Time Reduction", "From hours to minutes", "#E53E3E"),
-            ("5x", "Faster MTTR", "Mean Time To Resolution", "#38A169"), 
-            ("100%", "Automated Docs", "Zero manual documentation", "#3182CE"),
-            ("24/7", "AI Monitoring", "Continuous intelligent analysis", "#805AD5")
-        ]
+        ### 1. **Intelligent Gateway & Tool Selection**
+        The AgentCore gateway acts as a smart orchestrator that:
+        - **Analyzes** your request to understand intent and context
+        - **Selects** the most appropriate tools from the gateway's toolbox
+        - **Routes** requests to specialized AWS monitoring tools (CloudWatch, Logs, Metrics)
+        - **Coordinates** multi-tool workflows for complex analysis tasks
         
-        for col, (value, title, subtitle, color) in zip([col1, col2, col3, col4], metrics_data):
-            with col:
-                st.markdown(f"""
-                <div class="metric-card">
-                    <h2 style="color: {color}; margin: 0; font-size: 2.5rem;">{value}</h2>
-                    <h4 style="margin: 0.5rem 0; color: #2D3748;">{title}</h4>
-                    <p style="margin: 0; color: #718096; font-size: 0.9rem;">{subtitle}</p>
-                </div>
-                """, unsafe_allow_html=True)
+        ### 2. **Observability-Driven Orchestration**
+        The orchestrator leverages observability data to:
+        - **Monitor** tool performance and response times
+        - **Track** which tools provide the most valuable insights
+        - **Learn** from past successful troubleshooting patterns
+        - **Adapt** tool selection based on system context and history
+        
+        ### 3. **Memory-Enhanced Tool Selection**
+        AgentCore's memory system enables:
+        - **Context Retention**: Remember previous issues and their solutions
+        - **Pattern Recognition**: Identify recurring problems and optimal tool chains
+        - **Personalization**: Adapt to your team's preferred troubleshooting approaches
+        - **Knowledge Building**: Accumulate expertise over time for better recommendations
+        
+        ### 4. **Gateway Tool Categories**
+        
+        **📊 Monitoring Tools:**
+        - CloudWatch metrics analysis
+        - Custom dashboard creation
+        - Real-time alerting setup
+        
+        **📋 Log Analysis Tools:**
+        - Log Insights queries
+        - Error pattern detection
+        - Cross-service correlation
+        
+        **🔍 Diagnostic Tools:**
+        - Performance bottleneck identification
+        - Resource utilization analysis
+        - Dependency mapping
+        
+        **📝 Documentation Tools:**
+        - Automated report generation
+        - Jira ticket creation
+        - Runbook development
+        """)
         
         # Call to action with demo link
         st.markdown("---")
@@ -564,20 +582,37 @@ class EnhancedStreamlitMonitoringApp:
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
             if st.button("🚀 Start Interactive Demo", type="primary", use_container_width=True):
-                st.session_state.navigation = "🤖 Agent Chat"
+                # Use a different mechanism to navigate since navigation widget key is already used
+                st.info("🤖 Navigate to 'Agent Chat' using the sidebar to start the interactive demo!")
+                time.sleep(2)
                 st.rerun()
         
-        # Quick stats dashboard
+        # AgentCore Architecture Benefits
         st.markdown("---")
-        st.markdown("### 📊 Live Demo Statistics")
+        st.markdown("### 🏗️ AgentCore Architecture Benefits")
         
         col1, col2, col3 = st.columns(3)
         with col1:
-            st.metric("Demo Sessions Today", "127", "+23")
+            st.markdown("""
+            **🚪 Gateway Intelligence**
+            - Smart request routing
+            - Tool orchestration
+            - Context understanding
+            """)
         with col2:
-            st.metric("Questions Answered", "1,847", "+156")  
+            st.markdown("""
+            **👁️ Observability Integration**
+            - Performance tracking
+            - Usage analytics
+            - Quality monitoring
+            """)
         with col3:
-            st.metric("Avg Response Time", "1.8s", "-0.4s")
+            st.markdown("""
+            **🧠 Memory & Learning**
+            - Context retention
+            - Pattern recognition
+            - Continuous improvement
+            """)
     
     def render_workflow_page(self):
         """Render enhanced workflow comparison page"""
@@ -598,21 +633,18 @@ class EnhancedStreamlitMonitoringApp:
             st.markdown("### 🔴 Traditional Manual Workflow")
             
             traditional_steps = [
-                ("📱", "Alert Notification", "Receive alert via email/SMS", "5 min", "#FED7D7"),
-                ("🖥️", "Dashboard Navigation", "Open multiple AWS consoles", "10 min", "#FED7D7"),
-                ("📊", "Metrics Analysis", "Manually scan charts and graphs", "15 min", "#FED7D7"),
-                ("🔍", "Log Group Hunting", "Search through hundreds of log groups", "20 min", "#FED7D7"),
-                ("📋", "Log Entry Reading", "Sift through individual log entries", "30 min", "#FED7D7"),
-                ("🧠", "Manual Correlation", "Try to connect dots across services", "45 min", "#FED7D7"),
-                ("🎯", "Root Cause Guessing", "Hypothesize about potential causes", "30 min", "#FED7D7"),
-                ("📝", "Documentation", "Create Jira ticket manually", "15 min", "#FED7D7"),
-                ("👥", "Team Assignment", "Find and assign to right person", "10 min", "#FED7D7")
+                ("📱", "Alert Notification", "Receive alert via JIRAS", "#FED7D7"),
+                ("🖥️", "Dashboard Navigation", "Open multiple AWS consoles", "#FED7D7"),
+                ("📊", "Metrics Analysis", "Manually scan charts and graphs", "#FED7D7"),
+                ("🔍", "Log Group Hunting", "Search through hundreds of log groups", "#FED7D7"),
+                ("📋", "Log Entry Reading", "Sift through individual log entries", "#FED7D7"),
+                ("🧠", "Manual Correlation", "Try to connect dots across services", "#FED7D7"),
+                ("🎯", "Root Cause Guessing", "Hypothesize about potential causes", "#FED7D7"),
+                ("📝", "Documentation", "Create Jira ticket manually", "#FED7D7"),
+                ("👥", "Team Assignment", "Find and assign to right person", "#FED7D7")
             ]
             
-            total_time = 0
-            for icon, title, desc, time, color in traditional_steps:
-                time_val = int(time.split()[0])
-                total_time += time_val
+            for icon, title, desc, color in traditional_steps:
                 st.markdown(f"""
                 <div class="workflow-step" style="background: linear-gradient(135deg, {color}, #FFF5F5);">
                     <div style="display: flex; align-items: center; justify-content: center;">
@@ -620,37 +652,28 @@ class EnhancedStreamlitMonitoringApp:
                         <div style="text-align: left;">
                             <h5 style="margin: 0; color: #2D3748;">{title}</h5>
                             <p style="margin: 0.2rem 0; color: #4A5568; font-size: 0.9rem;">{desc}</p>
-                            <small style="color: #E53E3E; font-weight: bold;">⏱️ {time}</small>
                         </div>
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
             
-            st.markdown(f"""
-            <div style="text-align: center; padding: 1rem; background: #FED7D7; border-radius: 8px; margin-top: 1rem;">
-                <h4 style="color: #E53E3E; margin: 0;">Total Time: {total_time} minutes ({total_time//60}h {total_time%60}m)</h4>
-            </div>
-            """, unsafe_allow_html=True)
         
         with col2:
             st.markdown("### 🟢 AgentCore Automated Workflow")
             
             agentcore_steps = [
-                ("📱", "Alert Notification", "Receive alert via email/SMS", "0 min", "#C6F6D5"),
-                ("🤖", "Agent Invocation", "Ask AgentCore agent via chat", "1 min", "#C6F6D5"),
-                ("⚡", "Intelligent Querying", "AI queries all relevant AWS APIs", "2 min", "#C6F6D5"),
-                ("🔗", "Auto-Correlation", "Smart correlation across all services", "1 min", "#C6F6D5"),
-                ("🎯", "Root Cause Analysis", "AI identifies exact problem", "2 min", "#C6F6D5"),
-                ("📊", "Comprehensive Report", "Full analysis with evidence", "1 min", "#C6F6D5"),
-                ("🎫", "Auto-Ticketing", "Jira ticket created with all details", "0.5 min", "#C6F6D5"),
-                ("🚀", "Solution Recommendation", "Actionable remediation steps", "1 min", "#C6F6D5"),
-                ("✅", "Resolution Tracking", "Monitor implementation status", "0.5 min", "#C6F6D5")
+                ("📱", "Alert Notification", "Receive alert via email/SMS", "#C6F6D5"),
+                ("🤖", "Agent Invocation", "Ask AgentCore agent via chat", "#C6F6D5"),
+                ("⚡", "Intelligent Querying", "AI queries all relevant AWS APIs", "#C6F6D5"),
+                ("🔗", "Auto-Correlation", "Smart correlation across all services", "#C6F6D5"),
+                ("🎯", "Root Cause Analysis", "AI identifies exact problem", "#C6F6D5"),
+                ("📊", "Comprehensive Report", "Full analysis with evidence", "#C6F6D5"),
+                ("🎫", "Auto-Ticketing", "Jira ticket created with all details", "#C6F6D5"),
+                ("🚀", "Solution Recommendation", "Actionable remediation steps", "#C6F6D5"),
+                ("✅", "Resolution Tracking", "Monitor implementation status", "#C6F6D5")
             ]
             
-            total_time_ai = 0
-            for icon, title, desc, time, color in agentcore_steps:
-                time_val = float(time.split()[0])
-                total_time_ai += time_val
+            for icon, title, desc, color in agentcore_steps:
                 st.markdown(f"""
                 <div class="workflow-step" style="background: linear-gradient(135deg, {color}, #F0FFF4);">
                     <div style="display: flex; align-items: center; justify-content: center;">
@@ -658,41 +681,32 @@ class EnhancedStreamlitMonitoringApp:
                         <div style="text-align: left;">
                             <h5 style="margin: 0; color: #2D3748;">{title}</h5>
                             <p style="margin: 0.2rem 0; color: #4A5568; font-size: 0.9rem;">{desc}</p>
-                            <small style="color: #38A169; font-weight: bold;">⏱️ {time}</small>
                         </div>
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
             
-            st.markdown(f"""
-            <div style="text-align: center; padding: 1rem; background: #C6F6D5; border-radius: 8px; margin-top: 1rem;">
-                <h4 style="color: #38A169; margin: 0;">Total Time: {total_time_ai} minutes</h4>
-            </div>
-            """, unsafe_allow_html=True)
         
-        # Time savings calculation
-        time_saved = total_time - total_time_ai
-        efficiency_gain = round((time_saved / total_time) * 100)
-        
-        st.markdown(f"""
+        # AgentCore Benefits Summary
+        st.markdown("""
         <div style="text-align: center; padding: 2rem; background: linear-gradient(135deg, #E6FFFA, #B2F5EA); border-radius: 15px; margin: 2rem 0;">
-            <h2 style="color: #2D3748; margin-bottom: 1rem;">⚡ Efficiency Transformation</h2>
+            <h2 style="color: #2D3748; margin-bottom: 1rem;">⚡ AgentCore Transformation Benefits</h2>
             <div style="display: flex; justify-content: center; gap: 3rem;">
                 <div>
-                    <h3 style="color: #E53E3E; margin: 0;">{time_saved} min saved</h3>
-                    <p style="margin: 0; color: #4A5568;">Time Reduction</p>
+                    <h3 style="color: #E53E3E; margin: 0;">Intelligent</h3>
+                    <p style="margin: 0; color: #4A5568;">AI-Powered Analysis</p>
                 </div>
                 <div>
-                    <h3 style="color: #38A169; margin: 0;">{efficiency_gain}% faster</h3>
-                    <p style="margin: 0; color: #4A5568;">Efficiency Gain</p>
+                    <h3 style="color: #38A169; margin: 0;">Unified</h3>
+                    <p style="margin: 0; color: #4A5568;">Single Interface</p>
                 </div>
                 <div>
-                    <h3 style="color: #3182CE; margin: 0;">{round(total_time/total_time_ai)}x</h3>
-                    <p style="margin: 0; color: #4A5568;">Speed Multiplier</p>
+                    <h3 style="color: #3182CE; margin: 0;">Automated</h3>
+                    <p style="margin: 0; color: #4A5568;">End-to-End Process</p>
                 </div>
             </div>
         </div>
-        """, unsafe_allow_html=True)
+        """)
         
         # AgentCore primitives deep dive
         self._render_agentcore_primitives()
