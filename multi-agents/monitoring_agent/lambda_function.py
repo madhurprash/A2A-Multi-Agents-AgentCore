@@ -3,7 +3,7 @@ import os
 import boto3
 import logging
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 # Configure logging
@@ -506,7 +506,7 @@ def handle_create_jira_ticket(event):
                 "issue_key": result.get("key"),
                 "issue_id": result.get("id"),
                 "issue_url": f"{jira.instance_url}/browse/{result.get('key')}",
-                "created_at": datetime.now(datetime.timezone.utc).isoformat()
+                "created_at": datetime.now(timezone.utc).isoformat()
             })
         }
         

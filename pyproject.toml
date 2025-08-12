@@ -19,6 +19,7 @@ dependencies = [
     "zmq>=0.0.0",
     "openai-agents>=0.2.3",
     "python-keycloak>=5.7.0",
+    "plotly>=6.2.0",
 ]
 
 [build-system]

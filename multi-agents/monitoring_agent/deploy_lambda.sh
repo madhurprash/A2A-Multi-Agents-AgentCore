@@ -8,12 +8,12 @@
 set -Eeuo pipefail
 
 # --- Config / Args ---
-FUNCTION_NAME="${1:-monitoring-agent}"
+FUNCTION_NAME="${1:-monitoring-agent-fn}"
 REGION="${2:-us-west-2}"            # must match where your function lives
 RUNTIME="python3.11"                # your code uses requests; 3.11 is widely available
 ROLE_NAME="MonitoringLambdaRole"
-MAX_RETRIES=3
-RETRY_DELAY=5
+MAX_RETRIES=5
+RETRY_DELAY=10
 
 # Try to find AWS CLI
 AWS_CLI="${AWS_CLI:-aws}"
