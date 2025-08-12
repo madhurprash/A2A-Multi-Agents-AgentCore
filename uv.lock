@@ -423,8 +423,8 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "aws-opentelemetry-distro", specifier = "==0.10.0" },
-    { name = "bedrock-agentcore", specifier = ">=0.1.0" },
-    { name = "bedrock-agentcore-starter-toolkit", specifier = ">=0.1.0" },
+    { name = "bedrock-agentcore" },
+    { name = "bedrock-agentcore-starter-toolkit" },
     { name = "boto3" },
     { name = "botocore" },
     { name = "duckduckgo-search" },

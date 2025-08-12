@@ -10,6 +10,8 @@ import sys
 import json
 import time
 import logging
+import subprocess
+import yaml
 from boto3.session import Session
 from bedrock_agentcore_starter_toolkit import Runtime
 from bedrock_agentcore.runtime import BedrockAgentCoreApp
@@ -33,6 +35,7 @@ class AgentCoreRuntimeManager:
     def __init__(self, config_file='config.yaml'):
         """Initialize with configuration"""
         self.config_data = load_config(config_file)
+        self.bedrock_config = self._load_bedrock_config()
         self.agentcore_runtime = None
         self.region = REGION_NAME
         self.fresh_access_token = None  # Store fresh token in memory
@@ -46,15 +49,24 @@ class AgentCoreRuntimeManager:
         self.launch_agentcore_runtime = gateway_config.get('launch_agentcore_runtime', False)
         self.agent_arn = gateway_config.get('agent_arn')
         
-        # Import and use the refresh_access_token function from monitoring_agent
-        from monitoring_agent import refresh_access_token
-        self.fresh_access_token = refresh_access_token()
+        # Defer the import and token refresh until runtime configuration
+        self.fresh_access_token = None
         
         logger.info(f"Runtime execution role: {self.runtime_exec_role}")
         logger.info(f"Launch AgentCore runtime: {self.launch_agentcore_runtime}")
         logger.info(f"Agent ARN: {self.agent_arn}")
-        if self.fresh_access_token:
-            logger.info(f"✅ Fresh access token created and stored in memory")
+    
+    def _load_bedrock_config(self):
+        """Load Bedrock AgentCore configuration from .bedrock_agentcore.yaml"""
+        bedrock_config_file = ".bedrock_agentcore.yaml"
+        try:
+            with open(bedrock_config_file, 'r') as f:
+                config = yaml.safe_load(f)
+            logger.info(f"Bedrock AgentCore configuration loaded from: {bedrock_config_file}")
+            return config
+        except Exception as e:
+            logger.warning(f"Could not load Bedrock config from {bedrock_config_file}: {e}")
+            return {}
     
     def should_configure_runtime(self):
         """Check if runtime should be configured"""
@@ -282,37 +294,146 @@ class AgentCoreRuntimeManager:
             return status_response.endpoint['status']
         except Exception as e:
             return f"Error getting status: {e}"
+    
+    def launch_runtime_with_codebuild(self):
+        """Launch the AgentCore Runtime using CodeBuild approach"""
+        try:
+            logger.info("🚀 Launching AgentCore Runtime with CodeBuild...")
+            # Get default agent from configuration
+            default_agent = self.bedrock_config.get('default_agent', 'monitoring_agent')
+            logger.info(f"Using default agent: {default_agent}")
+            
+            # Run agentcore launch --codebuild command
+            cmd = ['agentcore', 'launch', '--codebuild']
+            logger.info(f"Executing command: {' '.join(cmd)}")
+            
+            start_time = time.time()
+            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            
+            elapsed_time = time.time() - start_time
+            logger.info(f"CodeBuild launch completed in {elapsed_time:.1f} seconds")
+            logger.info(f"Command output: {result.stdout}")
+            
+            if result.stderr:
+                logger.warning(f"Command stderr: {result.stderr}")
+            
+            # Extract runtime information from the bedrock config
+            runtime_info = self._get_codebuild_runtime_info()
+            
+            logger.info("✅ Agent runtime launched successfully with CodeBuild!")
+            return runtime_info
+            
+        except subprocess.CalledProcessError as e:
+            logger.error(f"❌ CodeBuild launch failed: {e}")
+            logger.error(f"Command stdout: {e.stdout}")
+            logger.error(f"Command stderr: {e.stderr}")
+            raise RuntimeError(f"CodeBuild launch failed with exit code {e.returncode}")
+        except Exception as e:
+            logger.error(f"❌ Failed to launch runtime with CodeBuild: {e}")
+            raise
+    
+    def _get_codebuild_runtime_info(self):
+        """Get runtime information from Bedrock AgentCore configuration"""
+        try:
+            default_agent = self.bedrock_config.get('default_agent', 'monitoring_agent')
+            agents_config = self.bedrock_config.get('agents', {})
+            agent_config = agents_config.get(default_agent, {})
+            
+            bedrock_agentcore = agent_config.get('bedrock_agentcore', {})
+            codebuild_config = agent_config.get('codebuild', {})
+            
+            return {
+                'agent_name': default_agent,
+                'agent_id': bedrock_agentcore.get('agent_id'),
+                'agent_arn': bedrock_agentcore.get('agent_arn'),
+                'codebuild_project': codebuild_config.get('project_name'),
+                'source_bucket': codebuild_config.get('source_bucket'),
+                'launch_method': 'codebuild'
+            }
+        except Exception as e:
+            logger.error(f"❌ Failed to get CodeBuild runtime info: {e}")
+            return {'launch_method': 'codebuild', 'error': str(e)}
 
 def main():
     """Main function for standalone runtime management"""
     import argparse
     
-    parser = argparse.ArgumentParser(description='AgentCore Runtime Manager')
+    parser = argparse.ArgumentParser(
+        description='AgentCore Runtime Manager',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+    # Configure and launch runtime (traditional approach)
+    python agent_runtime.py --configure --launch
+    
+    # Launch runtime using CodeBuild
+    python agent_runtime.py --launch-codebuild
+    
+    # Configure first, then launch with CodeBuild
+    python agent_runtime.py --configure --launch-codebuild
+    
+    # Check runtime status
+    python agent_runtime.py --status
+"""
+    )
+    
     parser.add_argument('--configure', action='store_true', help='Configure runtime')
-    parser.add_argument('--launch', action='store_true', help='Launch runtime')
+    parser.add_argument('--launch', action='store_true', help='Launch runtime (traditional)')
+    parser.add_argument('--launch-codebuild', action='store_true', help='Launch runtime using CodeBuild')
     parser.add_argument('--status', action='store_true', help='Get runtime status')
     parser.add_argument('--config', default='config.yaml', help='Configuration file path')
     
     args = parser.parse_args()
     
-    runtime_manager = AgentCoreRuntimeManager(args.config)
+    # Initialize runtime manager
+    try:
+        runtime_manager = AgentCoreRuntimeManager(args.config)
+    except Exception as e:
+        logger.error(f"❌ Failed to initialize runtime manager: {e}")
+        sys.exit(1)
     
-    if args.configure:
-        success = runtime_manager.configure_runtime()
-        if not success:
-            sys.exit(1)
-    
-    if args.launch:
-        if not runtime_manager.agentcore_runtime:
-            print("Runtime not configured. Run with --configure first.")
-            sys.exit(1)
-        success = runtime_manager.launch_runtime()
-        if not success:
-            sys.exit(1)
-    
-    if args.status:
-        status = runtime_manager.get_status()
-        print(f"Runtime status: {status}")
+    try:
+        # Handle configuration
+        if args.configure:
+            logger.info("🔧 Configuring runtime...")
+            success = runtime_manager.configure_runtime()
+            if not success:
+                logger.error("❌ Configuration failed")
+                sys.exit(1)
+        
+        # Handle traditional launch
+        if args.launch:
+            if not runtime_manager.agentcore_runtime:
+                logger.error("❌ Runtime not configured. Run with --configure first.")
+                sys.exit(1)
+            logger.info("🚀 Launching runtime...")
+            success = runtime_manager.launch_runtime()
+            if not success:
+                logger.error("❌ Launch failed")
+                sys.exit(1)
+        
+        # Handle CodeBuild launch
+        if args.launch_codebuild:
+            logger.info("🚀 Launching runtime with CodeBuild...")
+            try:
+                result = runtime_manager.launch_runtime_with_codebuild()
+                logger.info(f"✅ CodeBuild launch result: {json.dumps(result, indent=2, default=str)}")
+            except Exception as e:
+                logger.error(f"❌ CodeBuild launch failed: {e}")
+                sys.exit(1)
+        
+        # Handle status check
+        if args.status:
+            status = runtime_manager.get_status()
+            logger.info(f"Runtime status: {status}")
+        
+        # Show help if no arguments provided
+        if not any([args.configure, args.launch, args.launch_codebuild, args.status]):
+            parser.print_help()
+            
+    except Exception as e:
+        logger.error(f"❌ Operation failed: {e}")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()
