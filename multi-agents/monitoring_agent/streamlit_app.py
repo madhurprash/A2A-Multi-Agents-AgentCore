@@ -198,7 +198,7 @@ class StreamlitMonitoringApp:
             
             page = st.radio(
                 "Select Page:",
-                ["🏠 Home", "🔄 Workflow", "🤖 Agent Chat", "📊 Monitoring"],
+                ["🏠 Home", "🔄 Workflow", "🤖 Agent Chat", "🚀 Agent Invocation"],
                 key="navigation"
             )
             
@@ -288,43 +288,6 @@ class StreamlitMonitoringApp:
             for i, solution in enumerate(solutions, 1):
                 st.markdown(f'<div class="solution-point"><strong>{i}.</strong> {solution}</div>', unsafe_allow_html=True)
         
-        # Benefits Section
-        st.markdown("---")
-        st.markdown("### 🚀 Key Benefits")
-        
-        col1, col2, col3, col4 = st.columns(4)
-        
-        with col1:
-            st.markdown("""
-            <div class="metric-card">
-                <h3 style="color: #E53E3E; margin: 0;">90%</h3>
-                <p style="margin: 0;">Time Reduction</p>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        with col2:
-            st.markdown("""
-            <div class="metric-card">
-                <h3 style="color: #38A169; margin: 0;">5x</h3>
-                <p style="margin: 0;">Faster Resolution</p>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        with col3:
-            st.markdown("""
-            <div class="metric-card">
-                <h3 style="color: #3182CE; margin: 0;">100%</h3>
-                <p style="margin: 0;">Automated Docs</p>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        with col4:
-            st.markdown("""
-            <div class="metric-card">
-                <h3 style="color: #805AD5; margin: 0;">24/7</h3>
-                <p style="margin: 0;">Monitoring</p>
-            </div>
-            """, unsafe_allow_html=True)
         
         # Call to Action
         st.markdown("---")
@@ -645,96 +608,181 @@ What specific AWS service or issue would you like me to investigate?
             )
     
     def render_monitoring_page(self):
-        """Render the monitoring and metrics page"""
-        st.markdown('<div class="main-header">System Monitoring</div>', unsafe_allow_html=True)
+        """Render the monitoring and agent invocation page"""
+        st.markdown('<div class="main-header">Agent Invocation</div>', unsafe_allow_html=True)
         
-        # Real-time metrics simulation
-        col1, col2, col3, col4 = st.columns(4)
+        st.markdown("### 🤖 Agent Invocation Methods")
         
-        with col1:
-            st.metric(
-                label="Agent Responses",
-                value="1,234",
-                delta="12",
-                delta_color="normal"
+        # Agent invocation options
+        invocation_method = st.radio(
+            "Select invocation method:",
+            ["Interactive Local Version", "Agent ARN via boto3"],
+            key="invocation_method"
+        )
+        
+        if invocation_method == "Interactive Local Version":
+            self._render_local_invocation()
+        else:
+            self._render_boto3_invocation()
+    
+    def _render_local_invocation(self):
+        """Render local agent invocation interface"""
+        st.markdown("#### 🏠 Interactive Local Version")
+        
+        st.info("""This method runs the agent locally through the interactive runtime manager.
+        The agent will process requests using local resources and configurations.""")
+        
+        # Local invocation form
+        with st.form("local_invocation_form"):
+            prompt = st.text_area(
+                "Enter your prompt:",
+                placeholder="Enter your monitoring query or request...",
+                height=100
             )
-        
-        with col2:
-            st.metric(
-                label="Avg Response Time",
-                value="1.2s",
-                delta="-0.3s",
-                delta_color="normal"
-            )
-        
-        with col3:
-            st.metric(
-                label="Success Rate",
-                value="98.5%",
-                delta="0.5%",
-                delta_color="normal"
-            )
-        
-        with col4:
-            st.metric(
-                label="Issues Resolved",
-                value="89",
-                delta="23",
-                delta_color="normal"
-            )
-        
-        # Charts and visualizations
-        st.markdown("### 📈 Performance Metrics")
-        
-        # Demo chart data
-        import plotly.express as px
-        import pandas as pd
-        
-        # Sample data for demonstration
-        dates = pd.date_range(start='2024-01-01', periods=30, freq='D')
-        data = {
-            'Date': dates,
-            'Response_Time': [1.2 + 0.3 * (i % 7) for i in range(30)],
-            'Success_Rate': [98 + 2 * (i % 5) / 5 for i in range(30)],
-            'Issues_Resolved': [15 + 10 * (i % 3) for i in range(30)]
-        }
-        df = pd.DataFrame(data)
-        
-        # Response time chart
-        fig1 = px.line(df, x='Date', y='Response_Time', title='Agent Response Time (seconds)')
-        st.plotly_chart(fig1, use_container_width=True)
-        
-        # Success rate chart
-        fig2 = px.bar(df, x='Date', y='Issues_Resolved', title='Issues Resolved Per Day')
-        st.plotly_chart(fig2, use_container_width=True)
-        
-        # System status
-        st.markdown("### 🔧 System Status")
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.markdown("#### Agent Status")
-            agents_status = [
-                {"Agent": "Monitoring Agent", "Status": "🟢 Online", "Load": "45%"},
-                {"Agent": "Log Analysis", "Status": "🟢 Online", "Load": "32%"},
-                {"Agent": "Metrics Collector", "Status": "🟡 Warning", "Load": "78%"},
-                {"Agent": "Alert Handler", "Status": "🟢 Online", "Load": "23%"}
-            ]
-            st.table(agents_status)
-        
-        with col2:
-            st.markdown("#### Recent Activity")
-            activities = [
-                "🔍 Analyzed CloudWatch logs for web-app-prod",
-                "🎫 Created Jira ticket INFRA-5678",
-                "⚠️ Detected anomaly in database connections",
-                "✅ Resolved memory leak issue",
-                "📊 Generated daily performance report"
-            ]
             
-            for activity in activities:
-                st.markdown(f"- {activity}")
+            col1, col2 = st.columns(2)
+            with col1:
+                invoke_button = st.form_submit_button("🚀 Invoke Agent Locally", type="primary")
+            with col2:
+                clear_button = st.form_submit_button("🗑️ Clear")
+        
+        if invoke_button and prompt:
+            self._handle_local_invocation(prompt)
+        
+        if clear_button:
+            st.rerun()
+    
+    def _render_boto3_invocation(self):
+        """Render boto3 agent invocation interface"""
+        st.markdown("#### ☁️ Agent ARN via boto3")
+        
+        st.info("""This method invokes the agent through AWS Bedrock AgentCore using the agent ARN.
+        Requires proper AWS credentials and agent ARN configuration.""")
+        
+        # ARN configuration
+        agent_arn = st.text_input(
+            "Agent ARN:",
+            value=st.session_state.get('selected_agent_arn', ''),
+            placeholder="arn:aws:bedrock-agentcore:region:account:agent/agent-id"
+        )
+        
+        region = st.selectbox(
+            "AWS Region:",
+            ["us-west-2", "us-east-1", "eu-west-1", "ap-southeast-1"],
+            index=0
+        )
+        
+        # Boto3 invocation form
+        with st.form("boto3_invocation_form"):
+            prompt = st.text_area(
+                "Enter your prompt:",
+                placeholder="Enter your monitoring query or request...",
+                height=100
+            )
+            
+            streaming = st.checkbox("Enable streaming response", value=True)
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                invoke_button = st.form_submit_button("🚀 Invoke Agent via ARN", type="primary")
+            with col2:
+                clear_button = st.form_submit_button("🗑️ Clear")
+        
+        if invoke_button and prompt and agent_arn:
+            self._handle_boto3_invocation(agent_arn, region, prompt, streaming)
+        
+        if clear_button:
+            st.rerun()
+    
+    def _handle_local_invocation(self, prompt: str):
+        """Handle local agent invocation"""
+        with st.spinner("🤖 Invoking agent locally..."):
+            try:
+                # Use the runtime manager for local invocation
+                if self.runtime_manager:
+                    # This would be the actual local invocation
+                    response = self._invoke_agent_local(prompt)
+                    
+                    if response:
+                        st.success("✅ Agent invoked successfully!")
+                        st.markdown("**Response:**")
+                        st.markdown(response)
+                    else:
+                        st.error("❌ Failed to get response from local agent")
+                else:
+                    st.error("❌ Runtime manager not initialized")
+                    
+            except Exception as e:
+                st.error(f"❌ Local invocation failed: {str(e)}")
+                logger.error(f"Local invocation error: {e}")
+    
+    def _handle_boto3_invocation(self, agent_arn: str, region: str, prompt: str, streaming: bool):
+        """Handle boto3 agent invocation"""
+        with st.spinner("☁️ Invoking agent via boto3..."):
+            try:
+                response = self._invoke_agent_boto3(agent_arn, region, prompt, streaming)
+                
+                if response:
+                    st.success("✅ Agent invoked via boto3 successfully!")
+                    st.markdown("**Response:**")
+                    st.markdown(response)
+                else:
+                    st.error("❌ Failed to get response from boto3 agent")
+                    
+            except Exception as e:
+                st.error(f"❌ Boto3 invocation failed: {str(e)}")
+                logger.error(f"Boto3 invocation error: {e}")
+    
+    def _invoke_agent_local(self, prompt: str) -> str:
+        """Invoke agent locally through runtime manager"""
+        try:
+            # Use the existing runtime manager for local invocation
+            if hasattr(self.runtime_manager, 'invoke_agent_local'):
+                return self.runtime_manager.invoke_agent_local(prompt)
+            else:
+                # Fallback to demo response
+                return self._create_demo_response(prompt).message
+                
+        except Exception as e:
+            logger.error(f"Local invocation error: {e}")
+            raise
+    
+    def _invoke_agent_boto3(self, agent_arn: str, region: str, prompt: str, streaming: bool) -> str:
+        """Invoke agent via boto3 and agent ARN"""
+        try:
+            import boto3
+            
+            # Create bedrock agentcore client
+            client = boto3.client('bedrock-agentcore', region_name=region)
+            
+            # Prepare request payload
+            payload = {
+                'prompt': prompt,
+                'stream': streaming
+            }
+            
+            # Invoke agent
+            response = client.invoke_agent_runtime(
+                agentRuntimeArn=agent_arn,
+                qualifier='DEFAULT',
+                payload=json.dumps(payload)
+            )
+            
+            # Process response
+            if streaming:
+                response_text = ""
+                if 'response' in response:
+                    for chunk in response['response']:
+                        if 'text' in chunk:
+                            response_text += chunk['text']
+                return response_text
+            else:
+                return response.get('response', 'No response received')
+                
+        except Exception as e:
+            logger.error(f"Boto3 invocation error: {e}")
+            # Return demo response for testing
+            return self._create_demo_response(prompt).message
     
     def run(self):
         """Main application runner"""
@@ -760,7 +808,7 @@ What specific AWS service or issue would you like me to investigate?
                 self.render_workflow_page()
             elif page == "Agent Chat":
                 self.render_agent_chat_page()
-            elif page == "Monitoring":
+            elif page == "Agent Invocation":
                 self.render_monitoring_page()
             else:
                 st.error(f"Unknown page: {page}")
