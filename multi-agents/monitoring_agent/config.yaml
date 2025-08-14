@@ -49,7 +49,7 @@ agent_information:
       # that this agent has access to - this can be an existing gateway in the case
       # of which you would have to configure the access token for inbound auth of
       # this gateway
-      name: "monitorgatewayworkdaynew"
+      name: "monitorgateway"
       # this is the name of the bucket where the target files (openapi or smithy) will
       # be uploaded from
       bucket_name: fmbench-deep-dive
