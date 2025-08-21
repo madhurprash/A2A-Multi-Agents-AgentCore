@@ -28,12 +28,6 @@ agent_information:
       lead_agent:
         use_existing: true
         memory_id: OpsAgent_mem_1753364538-TvqIKh3jxd
-      chat_ops_agent:
-        use_existing: true
-        memory_id: OpsAgent_chat_1753364705-2bbQkyHyVO
-      ticket_agent:
-        use_existing: true
-        memory_id: TicketCreation_chat_1753364881-Dq80O2DlHQ
     memory_credentials:
       # fetch this from your AWS console
       id: 
@@ -47,108 +41,20 @@ agent_information:
       # the user and the AI agent
       # A namespace is used to logically group and organize the long term memories, these will
       # be created on the fly using the strategies that are used in the memory for the agent.
-    # GATEWAY CONFIGURATION FOR THE MONITORING AGENT
-    # Gateway configuration for the monitoring agent
-    # Gateway configuration with Keycloak
-    gateway_config:
-      name: "ops-gtwnewone"
-      # Cognito authentication configuration
-      inbound_auth:
-        type: "cognito"
-        cognito:
-          create_user_pool: true
-          user_pool_name: "agentcore-gateway-ops-new"
-          resource_server_id: "ops_orchestrator_agent"
-          resource_server_name: "agentcore-gateway-ops"
-          client_name: "agentcore-client-ops"
-          scopes:
-            - ScopeName: "gateway:read"
-              ScopeDescription: "Read access"
-            - ScopeName: "gateway:write"
-              ScopeDescription: "Write access"
-      credentials:
-        use_cognito: true        # must be a YAML boolean
-        use_existing: false
-        create_new_access_token: true
-        gateway_id: null
-        mcp_url: null
-        access_token: null
-      
-      # MCP Connection Configuration for long-lived agents
-      connection_config:
-        # Timeout settings for MCP connections (in seconds)
-        timeout: 60.0              # General timeout for MCP operations
-        connect_timeout: 30.0      # Timeout for initial connection
-        read_timeout: 120.0        # Timeout for reading responses
-        # Retry configuration
-        max_retries: 3             # Number of connection retries
-        retry_delay: 2             # Initial delay between retries (seconds)
-        exponential_backoff: true  # Use exponential backoff for retries
-        # Health check configuration
-        health_check_interval: 300 # Health check interval (5 minutes)
-        max_execution_retries: 2   # Max retries for agent execution
-      
-      # Gateway targets configuration
-      existing_target: false
-      target_name: null
-      bucket_name: "ops-orchestrator-gateway-bucket"
-      
-      # Target configurations
-      targets:
-        - name: "jira-integration-new"
-          # Absolute path to your openAPI spec file
-          spec_file: /Users/madhurpt/Desktop/genesis/multi-agents/ops_orchestrator_agent/tools/jira_api_spec.yaml
-          type: "openapi"
-          api_type: "jira"
-          endpoint: "https://your-jira-instance.atlassian.net"
-          authentication:
-            type: "basic"
-            credentials:
-              username: "${JIRA_USERNAME}"
-              password: "${JIRA_API_TOKEN}"
-        
-        # - name: "slack-integration"
-        #   type: "openapi"
-        #   endpoint: "https://slack.com/api"
-        #   authentication:
-        #     type: "bearer"
-        #     credentials:
-        #       token: "${SLACK_BOT_TOKEN}"
-        
-        - name: "github-integration-new"
-          # Absolute path to your openAPI spec file
-          spec_file: /Users/madhurpt/Desktop/genesis/multi-agents/ops_orchestrator_agent/tools/github_api_spec.yaml
-          type: "openapi"
-          api_type: "github"
-          endpoint: "https://api.github.com"
-          authentication:
-            type: "bearer"
-            credentials:
-              token: "${GITHUB_TOKEN}"
-              
-      # this is the name of the bucket where the target files (openapi or smithy) will
-      # be uploaded from
-      bucket_name: fmbench-deep-dive
-      # this is the description of the agent gateway
-      description: "AgentCore Gateway for the openAI operations agent"
-      # protocol type is MCP
-      protocol_type: "MCP"
-      # These can be MCP servers that are local or available through streamable http or sse
-      # We will be fetching tools from these MCP servers and then use that behind a tool gateway
-      # This tool gateway will ultimately contain local tools and MCP server tools that will be available
-      # as endpoints to call through the tool gateway primitive
-      # These can be json files for now are supported, can be lambda functions as well
-      # This represents the target type for the gateway
-      existing_target: false
-      target_name: null
-      target_type: openapi
-      # IAM Role Configuration
-      # this is the IAM role that will be attached to this gateway
-      iam_role:
-        execution_role_arn: "arn:aws:iam::ACCOUNT_ID:role/GenesisGatewayExecutionRole"
-      # This is if the agent is already configured and needs to be invokeds
-      agent_arn: arn:aws:bedrock-agentcore:us-west-2:218208277580:runtime/ops_orchestrator_multi_agent-db8C1qCrVP
-      # set this to false if the agent arn is provided from above
-      launch_agentcore_runtime: true
-      # this is the runtime execution role for the agent that will be used 
-      runtime_exec_role: arn:aws:iam::218208277580:role/service-role/Amazon-Bedrock-IAM-Role-20240102T112809
+    # set this to false if the agent arn is provided from above
+    launch_agentcore_runtime: true
+    # this is the runtime execution role for the agent that will be used 
+    runtime_exec_role: arn:aws:iam::218208277580:role/service-role/Amazon-Bedrock-IAM-Role-20240102T112809
+  
+# Authentication configuration for OIDC
+idp_setup:
+  user_pool_id: us-west-2_VveqvN6ar
+  discovery_url: https://cognito-idp.us-west-2.amazonaws.com/us-west-2_VveqvN6ar/.well-known/openid-configuration
+  client_secret: vkapqeb6629d0o2vqpen2k9ji9buha9vn4p8mkr7ao4h89bs81p
+  client_id: 27p4n7fn6t5fttt0hif3eehnmr
+
+# this is information about the cloudwatch related tools that will be used
+# in the agent
+cloudwatch_agent_resources:
+  log_group_name: "agents/operations-agent"
+  log_stream_name: "operationsagent"

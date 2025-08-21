@@ -9,6 +9,8 @@ Follow some of the user preferences below as it pertains to memory related to in
 3. Always be focussed on an incident response logging use cases in terms of user preferences
 
 4. Make sure to keep in mind the previous fixes so if another similar one has occurred, you can provide that previously proposed solution
+
+5. Always extract the solutions that the agent is providing and the key issues.
 </incident_response>
 
 <past_conversation>

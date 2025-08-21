@@ -10,10 +10,130 @@ import logging
 import yaml
 from typing import Optional, Dict, Union, List
 from pathlib import Path
+from botocore.exceptions import ClientError
 
 # set a logger
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
+
+
+def get_secret(secret_name: str, region_name: str = 'us-west-2') -> str:
+    """
+    Retrieve a secret from AWS Secrets Manager.
+    
+    Args:
+        secret_name: Name of the secret in AWS Secrets Manager
+        region_name: AWS region where the secret is stored (default: us-west-2)
+        
+    Returns:
+        The secret value as a string
+        
+    Raises:
+        ValueError: If secret cannot be retrieved
+        
+    Example:
+        # Get OpenAI API key
+        api_key = get_secret("prod/openai/api-key")
+        
+        # Get from different region
+        api_key = get_secret("prod/openai/api-key", "us-east-1")
+    """
+    try:
+        # Create a Secrets Manager client
+        client = boto3.client('secretsmanager', region_name=region_name)
+        
+        logger.info(f"Retrieving secret '{secret_name}' from region '{region_name}'")
+        
+        response = client.get_secret_value(SecretId=secret_name)
+        
+        # Handle both string and JSON secrets
+        secret_string = response['SecretString']
+        
+        try:
+            # Try to parse as JSON first
+            secret_data = json.loads(secret_string)
+            # If it's a JSON object, look for common key patterns
+            if isinstance(secret_data, dict):
+                # Try common key patterns for API keys
+                for key in ['api_key', 'key', 'value', 'OPENAI_API_KEY', 'TAVILY_API_KEY', 'JIRA_API_KEY']:
+                    if key in secret_data:
+                        logger.info(f"Successfully retrieved secret '{secret_name}' (JSON format)")
+                        return secret_data[key]
+                # If no standard key found, return the first value
+                if secret_data:
+                    logger.info(f"Successfully retrieved secret '{secret_name}' (JSON format, first value)")
+                    return list(secret_data.values())[0]
+                return secret_string
+            return secret_string
+        except json.JSONDecodeError:
+            # It's a plain string secret
+            logger.info(f"Successfully retrieved secret '{secret_name}' (plain string)")
+            return secret_string
+            
+    except ClientError as e:
+        error_code = e.response['Error']['Code']
+        error_message = e.response['Error']['Message']
+        
+        if error_code == 'ResourceNotFoundException':
+            raise ValueError(f"Secret '{secret_name}' not found in region '{region_name}'. Please check the secret name and region.")
+        elif error_code == 'InvalidParameterException':
+            raise ValueError(f"Invalid parameter for secret '{secret_name}': {error_message}")
+        elif error_code == 'InvalidRequestException':
+            raise ValueError(f"Invalid request for secret '{secret_name}': {error_message}")
+        elif error_code == 'DecryptionFailureException':
+            raise ValueError(f"Failed to decrypt secret '{secret_name}': {error_message}")
+        else:
+            raise ValueError(f"Failed to retrieve secret '{secret_name}': {error_code} - {error_message}")
+    except Exception as e:
+        raise ValueError(f"Unexpected error retrieving secret '{secret_name}': {str(e)}")
+
+
+def get_api_key(key_name: str, secret_name: Optional[str] = None, region_name: str = 'us-west-2') -> str:
+    """
+    Get API key from Secrets Manager with environment variable fallback.
+    
+    Args:
+        key_name: Environment variable name (e.g., 'OPENAI_API_KEY')
+        secret_name: AWS Secrets Manager secret name (e.g., 'prod/openai/api-key')
+        region_name: AWS region for Secrets Manager
+        
+    Returns:
+        The API key value
+        
+    Raises:
+        ValueError: If key cannot be found in either location
+        
+    Example:
+        # Try Secrets Manager first, fallback to env var
+        openai_key = get_api_key('OPENAI_API_KEY', 'prod/openai/api-key')
+        
+        # Only use environment variable
+        openai_key = get_api_key('OPENAI_API_KEY')
+    """
+    # First try Secrets Manager if secret name provided
+    if secret_name:
+        try:
+            api_key = get_secret(secret_name, region_name)
+            logger.info(f"Retrieved {key_name} from AWS Secrets Manager")
+            return api_key
+        except ValueError as e:
+            logger.warning(f"Failed to get {key_name} from Secrets Manager: {e}")
+            logger.info(f"Falling back to environment variable...")
+    
+    # Fallback to environment variable
+    env_value = os.getenv(key_name)
+    if env_value:
+        logger.info(f"Retrieved {key_name} from environment variable")
+        return env_value
+    
+    # If we get here, neither source worked
+    sources = []
+    if secret_name:
+        sources.append(f"AWS Secrets Manager ({secret_name})")
+    sources.append(f"environment variable ({key_name})")
+    
+    raise ValueError(f"Could not find {key_name} in any of: {', '.join(sources)}")
+
 
 def load_config(config_file: Union[Path, str]) -> Optional[Dict]:
     """
@@ -186,30 +306,58 @@ def get_or_create_m2m_client(cognito, user_pool_id, CLIENT_NAME, RESOURCE_SERVER
 def get_token(user_pool_id: str, client_id: str, client_secret: str, scope_string: str, REGION: str) -> dict:
     try:
         # Get the actual domain name for the user pool
+        print(f"Going to get the token using the user pool id: {user_pool_id}, client id: {client_id}...")
         cognito = boto3.client("cognito-idp", region_name=REGION)
         user_pool_response = cognito.describe_user_pool(UserPoolId=user_pool_id)
+        print(f"Describing the user pool: {user_pool_response}")
         domain = user_pool_response.get('UserPool', {}).get('Domain')
+        print(f"Fetched the domain for Cognito: {domain}")
         
         if not domain:
             # Fallback to the old method if no domain is found
             user_pool_id_without_underscore = user_pool_id.replace("_", "").lower()
+            print(f"DEBUG: user_pool_id_without_underscore: {user_pool_id_without_underscore}")
             url = f"https://{user_pool_id_without_underscore}.auth.{REGION}.amazoncognito.com/oauth2/token"
         else:
             url = f"https://{domain}.auth.{REGION}.amazoncognito.com/oauth2/token"
+        
         headers = {"Content-Type": "application/x-www-form-urlencoded"}
         data = {
             "grant_type": "client_credentials",
             "client_id": client_id,
             "client_secret": client_secret,
             "scope": scope_string,
-
         }
-        print(client_id)
-        print(client_secret)
+        
+        print(f"Token endpoint URL: {url}")
+        print(f"Client ID: {client_id}")
+        print(f"Requested scopes: {scope_string}")
+        print("Making token request...")
+        
         response = requests.post(url, headers=headers, data=data)
+        
+        if response.status_code != 200:
+            print(f"❌ Token request failed with status {response.status_code}")
+            print(f"Response body: {response.text}")
+            
+            # Provide helpful error messages for common issues
+            if response.status_code == 400:
+                error_text = response.text.lower()
+                if "invalid_client" in error_text:
+                    return {"error": "Invalid client credentials. Check client_id and client_secret."}
+                elif "invalid_scope" in error_text:
+                    return {"error": f"Invalid scope '{scope_string}'. Check if the resource server and scopes exist."}
+                elif "unsupported_grant_type" in error_text:
+                    return {"error": "Client not configured for client_credentials flow. Check OAuth flow settings."}
+                else:
+                    return {"error": f"Bad request (400): {response.text}"}
+            else:
+                return {"error": f"HTTP {response.status_code}: {response.text}"}
+        
         response.raise_for_status()
-        print(f"Fetched the token that will be used to connect to the targets: {response.json()}")
-        return response.json()
+        token_data = response.json()
+        print(f"✅ Successfully fetched access token")
+        return token_data
 
     except requests.exceptions.RequestException as err:
         return {"error": str(err)}

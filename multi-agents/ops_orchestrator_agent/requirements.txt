@@ -6,3 +6,4 @@ requests
 boto3
 botocore
 openai-agents
+tavily-python
