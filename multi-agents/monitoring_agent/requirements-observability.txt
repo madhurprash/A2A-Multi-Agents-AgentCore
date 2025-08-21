@@ -1,2 +1,0 @@
-# AWS OpenTelemetry Distribution (All-in-one package)
-aws-opentelemetry-distro

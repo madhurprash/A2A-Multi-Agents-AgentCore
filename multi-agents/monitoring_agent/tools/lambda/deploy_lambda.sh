@@ -8,7 +8,7 @@
 set -Eeuo pipefail
 
 # --- Config / Args ---
-FUNCTION_NAME="${1:-monitoring-agent-fn}"
+FUNCTION_NAME="${1:-monitoring-agent-fn-new}"
 REGION="${2:-us-west-2}"            # must match where your function lives
 RUNTIME="python3.11"                # your code uses requests; 3.11 is widely available
 ROLE_NAME="MonitoringLambdaRole"

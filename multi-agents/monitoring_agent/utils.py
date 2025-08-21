@@ -485,17 +485,18 @@ def create_agentcore_gateway_role(gateway_name):
 
     return agentcore_iam_role
 
-def get_token(user_pool_id: str, client_id: str, client_secret: str, scope_string: str, REGION: str) -> dict:
+def get_token(user_pool_id: str, client_id: str, client_secret: str, scope_string: str) -> dict:
     try:
-        user_pool_id_without_underscore = user_pool_id.replace("_", "")
-        url = f"https://{user_pool_id_without_underscore}.auth.{REGION}.amazoncognito.com/oauth2/token"
+        # Extract just the pool ID part after the underscore and add "mcp" prefix
+        pool_id_suffix = user_pool_id.split("_")[1] if "_" in user_pool_id else user_pool_id
+        user_pool_domain = f"mcp{pool_id_suffix.lower()}"
+        url = f"https://{user_pool_domain}.auth.{boto3.session.Session().region_name}.amazoncognito.com/oauth2/token"
         headers = {"Content-Type": "application/x-www-form-urlencoded"}
         data = {
             "grant_type": "client_credentials",
             "client_id": client_id,
             "client_secret": client_secret,
             "scope": scope_string,
-
         }
         print(client_id)
         print(client_secret)
@@ -1006,7 +1007,7 @@ def create_targets_from_config(gateway_id, gateway_config, bucket_name):
                 function_arn = lambda_config.get('role_arn')
                 if not function_arn:
                     # Get the Lambda function ARN
-                    lambda_client = boto3.client('lambda', region_name=os.environ.get('AWS_DEFAULT_REGION', 'us-east-1'))
+                    lambda_client = boto3.client('lambda', region_name=boto3.session.Session().region_name)
                     try:
                         function_response = lambda_client.get_function(FunctionName=function_name)
                         function_arn = function_response['Configuration']['FunctionArn']

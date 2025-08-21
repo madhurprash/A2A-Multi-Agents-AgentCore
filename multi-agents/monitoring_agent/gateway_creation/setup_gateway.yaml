@@ -1,0 +1,35 @@
+gateway_config:
+  # this is the name of the gateway for this agent and the tools
+  # that this agent has access to - this can be an existing gateway in the case
+  # of which you would have to configure the access token for inbound auth of
+  # this gateway
+  name: "monitoring-gateway"
+  # this is the name of the bucket where the target files (openapi or smithy) will
+  # be uploaded from
+  bucket_name: fmbench-deep-dive
+  # this is the description of the agent gateway
+  description: "AgentCore Gateway for the monitoring agent"
+  # protocol type is MCP
+  protocol_type: "MCP"
+  # These can be MCP servers that are local or available through streamable http or sse
+  # We will be fetching tools from these MCP servers and then use that behind a tool gateway
+  # This tool gateway will ultimately contain local tools and MCP server tools that will be available
+  # as endpoints to call through the tool gateway primitive
+  # These can be json files for now are supported, can be lambda functions as well
+  # This represents the target type for the gateway
+  existing_target: false
+  target_name: CloudWatchMonitoring
+  target_type: "lambda"  # Options: "openAPI", "lambda", or "smithy"
+  # these are the targets that will be used by the agent 
+  targets:
+    # to deploy this lambda function, first -> cd tools/lambda and then
+    # after that run the deploy lambda script: ./deploy_lambda.sh
+    lambda:
+      function_name: "monitoring-agent"
+      role_arn: arn:aws:lambda:us-west-2:218208277580:function:monitoring-agent-fn-new
+      config_struct: tools/lambda_monitoring_tools.json
+  # Fetch this information from the idp_setup/cognito_config.json after running the 
+  # cognito script. If not, then provide this information from your IdP of choice
+  auth_info:
+    discovery_url: https://cognito-idp.us-west-2.amazonaws.com/us-west-2_9vgd5BnHn/.well-known/openid-configuration
+    client_id: c8qdlav89fr8bjk6s8dl34ajs

@@ -13,15 +13,7 @@ agent_information:
     monitoring_agent: monitoring_agent_prompt_template.txt
   # Represents information about the monitoring agent
   monitoring_agent_model_info: 
-    # Represents the model id that the agent will use within 
-    # the strands agents SDK
-    # The finance agent is not a complicated agent but calls a tool that requires
-    # code generation. We will power the agent with a small model (Nova Micro), but 
-    # will use a larger, more comprehensive model for code generation (view the code gen
-    # model info section below)
     model_id: us.anthropic.claude-3-5-sonnet-20240620-v1:0
-    # Represents the inference parameters that the foundation model
-    # uses at runtime during inference
     inference_parameters:
       # This is not an exhaustive list, it can be changed or extended
       # based on the inference parameters that are supported
@@ -32,7 +24,8 @@ agent_information:
     use_existing_memory: yes
     memory_credentials:
       # fetch this from your AWS console
-      id: MonitoringAgentGWNew_memory_1755008733-7zQIvrHLUs
+      id: MonitoringAgentGWNew_memory_1755723601-zkkauz3pO4
+    memory_execution_role: arn:aws:iam::218208277580:role/memrole
     memory_allocation:
       # An actor refers to an entity such as an end user or an agent that interacts with the
       # agent application. For example, in a coding use case, an actor is a developer asking
@@ -45,98 +38,26 @@ agent_information:
       # be created on the fly using the strategies that are used in the memory for the agent.
     # GATEWAY CONFIGURATION FOR THE MONITORING AGENT
     gateway_config:
-      # this is the name of the gateway for this agent and the tools
-      # that this agent has access to - this can be an existing gateway in the case
-      # of which you would have to configure the access token for inbound auth of
-      # this gateway
-      name: "monitorgateway"
-      # this is the name of the bucket where the target files (openapi or smithy) will
-      # be uploaded from
-      bucket_name: fmbench-deep-dive
-      # this is the description of the agent gateway
-      description: "AgentCore Gateway for the monitoring agent"
-      # protocol type is MCP
-      protocol_type: "MCP"
-      # These can be MCP servers that are local or available through streamable http or sse
-      # We will be fetching tools from these MCP servers and then use that behind a tool gateway
-      # This tool gateway will ultimately contain local tools and MCP server tools that will be available
-      # as endpoints to call through the tool gateway primitive
-      # These can be json files for now are supported, can be lambda functions as well
-      # This represents the target type for the gateway
-      existing_target: false
-      target_name: CloudWatchMonitoring
-      target_type: "lambda"  # Options: "openAPI", "lambda", or "smithy"
-      # these are the targets that will be used by the agent 
-      targets:
-        lambda:
-          - function_name: "monitoring-agent"
-            role_arn: arn:aws:lambda:us-west-2:218208277580:function:monitoring-agent
-            config_struct: tools/lambda_monitoring_tools.json
-      # This is the cognito discovery URL and client id to get the bearer token
-      auth_info:
-        # this is the cognito discovery URL
-        # generate this by running set_up_idp.py file
-        discovery_url: https://cognito-idp.us-west-2.amazonaws.com/us-west-2_EeU9Cb4E3/.well-known/openid-configuration
-        client_id: 72fm46m3ceffpsrgh6o8qr3rqm
-      # IAM Role Configuration
-      # this is the IAM role that will be attached to this gateway
-      iam_role:
-        execution_role_arn: "arn:aws:iam::ACCOUNT_ID:role/GenesisGatewayExecutionRole"
-      # Inbound Authentication Configuration
-      # COGNITO SETUP but this can be okta, keycloak, etc.
-      inbound_auth:
-        type: "cognito"
-        cognito:
-          # If you want a new user pool to be created, then this is 
-          # the value that should be configured in the config file.
-          create_user_pool: true
-          user_pool_name: "gateway"
-          resource_server_id: "monitoring_agent"
-          resource_server_name: "agentcore-gateway"
-          client_name: "agentcore-client"
-          # The scopes for this client is both to read and to write
-          scopes:
-            - ScopeName: "gateway:read"
-              ScopeDescription: "Read access"
-            - ScopeName: "gateway:write"
-              ScopeDescription: "Write access"
-      # This is if the agent is already configured and needs to be invokeds
-      agent_arn: "arn:aws:bedrock-agentcore:us-west-2:218208277580:runtime/monitoring_agent-7m6tVG3Pv6"
-      # set this to false if the agent arn is provided from above
-      launch_agentcore_runtime: true
-      # this is the runtime execution role for the agent that will be used 
-      runtime_exec_role: arn:aws:iam::218208277580:role/service-role/Amazon-Bedrock-IAM-Role-20240102T112809
-      # Credentials storage configuration
-      credentials:
-        storage_path:
-        use_existing: false
-        # if it has been one hour since you used the previous token
-        # then it would make sense to refresh the access token for your
-        # agent that talks to the gateway
-        create_new_access_token: true  # Enable automatic token refresh on 401 errors
+      # Run the steps in the gateway_creation folder to input the parameters below
+      name: monitoring-gateway
+      url: https://monitoring-gateway-uplffpejsd.gateway.bedrock-agentcore.us-west-2.amazonaws.com/mcp
+    # This is if the agent is already configured and needs to be invokeds
+    agent_arn: 
+    # set this to false if the agent arn is provided from above
+    launch_agentcore_runtime: true
+    # this is the runtime execution role for the agent that will be used 
+    runtime_exec_role: arn:aws:iam::218208277580:role/service-role/Amazon-Bedrock-IAM-Role-20240102T112809
       
 # Identity Provider (IdP) setup configuration for prerequisite setup
+# after running the setup idp scripts, you will find a cognito config.json
+# to get the values from that you can input below. This can be done through
+# cognito or even through another IdP
 idp_setup:
-  # Configuration for setting up Cognito User Pool for agent authentication
-  cognito:
-    # User pool configuration
-    user_pool:
-      name: "MCPServerPool"
-      password_policy:
-        minimum_length: 8
-    # App client configuration  
-    app_client:
-      name: "MCPServerPoolClient"
-      generate_secret: false
-      explicit_auth_flows:
-        - "ALLOW_USER_PASSWORD_AUTH"
-        - "ALLOW_REFRESH_TOKEN_AUTH"
-    # Default user for testing/setup
-    default_user:
-      username: "testuser"
-      temporary_password: "Temp123!"
-      permanent_password: "MyPassword123!"
-      message_action: "SUPPRESS"
+  user_pool_id: us-west-2_9vgd5BnHn
+  discovery_url: https://cognito-idp.us-west-2.amazonaws.com/us-west-2_9vgd5BnHn/.well-known/openid-configuration
+  client_secret: jtddnorauplie79ls0ui41f2mbu2tm7m9r6dq87uo00729f6mk6
+  client_id: c8qdlav89fr8bjk6s8dl34ajs
+
 
 # this is information about the cloudwatch related tools that will be used
 # in the agent

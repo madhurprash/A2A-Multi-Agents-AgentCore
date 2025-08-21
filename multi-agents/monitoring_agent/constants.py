@@ -35,7 +35,6 @@ MONITORING_GATEWAY_DESC: str = "Gateway for the monitoring agent"
 MONITORING_GATEWAY_CREDENTIALS_PATH = "mcp_credentials.json"
 REGION_NAME = boto3.Session().region_name
 ACCOUNT_ID = boto3.client("sts").get_caller_identity()["Account"]
-EXECUTION_ROLE_ARN = f"arn:aws:iam::{ACCOUNT_ID}:role/GenesisGatewayExecutionRole"
 LAMBDA_ARN = f"arn:aws:lambda:{REGION_NAME}:{ACCOUNT_ID}:function:AgentGatewayFunction"
 
 # This is the prompt template directory for the agents

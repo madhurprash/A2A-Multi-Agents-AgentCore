@@ -62,19 +62,13 @@ from bedrock_agentcore_starter_toolkit.operations.gateway import GatewayClient
 from strands.hooks import AfterInvocationEvent, HookProvider, HookRegistry, MessageAddedEvent
 
 # Clean logging configuration for interactive mode
-if len(sys.argv) > 1 and "--interactive" in sys.argv:
-    # Minimal logging for interactive CLI
-    logging.basicConfig(
-        format="%(message)s", 
-        level=logging.ERROR,
-        handlers=[logging.StreamHandler()]
-    )
-else:
-    # Standard logging for non-interactive mode
-    logging.basicConfig(
-        format="%(levelname)s | %(name)s | %(message)s", 
-        handlers=[logging.StreamHandler()]
-    )
+logging.getLogger("strands").setLevel(logging.DEBUG)
+
+# Add a handler to see the logs
+logging.basicConfig(
+    format="%(levelname)s | %(name)s | %(message)s", 
+    handlers=[logging.StreamHandler()]
+)
 sys.path.insert(0, ".")
 sys.path.insert(1, "..")
 from utils import *
@@ -175,7 +169,14 @@ except ClientError as e:
         pass
     else:
         print(f"Error while creating log group: {e}")
-        raise e
+        print("Continuing without creating log group...")
+        # Continue execution instead of raising the error
+        pass
+except Exception as e:
+    print(f"Unexpected error while creating log group: {e}")
+    print("Continuing without creating log group...")
+    # Continue execution for any other unexpected errors
+    pass
 
 # Next, we will create a log stream for the same
 try:
@@ -191,47 +192,14 @@ except ClientError as e:
         pass
     else:
         print(f"Error while creating log stream: {e}")
-        raise e
-
-def _refresh_access_token() -> str:
-    """
-    Refresh the access token using stored credentials and config
-    """
-    try:
-        # Get config values
-        gateway_config_info = config_data['agent_information']['monitoring_agent_model_info'].get('gateway_config')
-        inbound_auth_config = gateway_config_info.get('inbound_auth')
-        cognito_config = inbound_auth_config.get('cognito')
-        
-        RESOURCE_SERVER_ID = cognito_config.get('resource_server_id', "monitoring_agent")
-        CLIENT_NAME = cognito_config.get('client_name', "agentcore-client")
-        
-        # Get auth info to extract pool details
-        auth_info = gateway_config_info.get('auth_info', {})
-        discovery_url = auth_info.get('discovery_url')
-        
-        if discovery_url:
-            # Extract pool_id from discovery URL
-            match = re.search(r'/([^/]+)/\.well-known', discovery_url)
-            if match:
-                user_pool_id = match.group(1)
-                
-                # Get client credentials
-                cognito = boto3.client("cognito-idp", region_name=REGION_NAME)
-                _, client_secret = get_or_create_m2m_client(cognito, user_pool_id, CLIENT_NAME, RESOURCE_SERVER_ID)
-                
-                # Get new token
-                scope_string = f"{RESOURCE_SERVER_ID}/gateway:read {RESOURCE_SERVER_ID}/gateway:write"
-                token_response = get_token(user_pool_id, auth_info.get('client_id'), client_secret, scope_string, REGION_NAME)
-                
-                if "error" not in token_response:
-                    return token_response["access_token"]
-                    
-        logger.error("Failed to refresh access token")
-        return None
-    except Exception as e:
-        logger.error(f"Token refresh failed: {e}")
-        return None
+        print("Continuing without creating log stream...")
+        # Continue execution instead of raising the error
+        pass
+except Exception as e:
+    print(f"Unexpected error while creating log stream: {e}")
+    print("Continuing without creating log stream...")
+    # Continue execution for any other unexpected errors
+    pass
     
 # ────────────────────────────────────────────────────────────────────────────────────
 # AGENTCORE MEMORY PRIMITIVE INITIALIZATION
@@ -303,9 +271,10 @@ else:
         ]
         
         try:
+            logger.info(f"Going to use the following memory: {config_data['agent_information']['monitoring_agent_model_info'].get('memory_execution_role')}")
             memory = client.create_memory_and_wait(
                 name=f"{MONITORING_GATEWAY_NAME}_memory_{int(time.time())}",
-                memory_execution_role_arn=EXECUTION_ROLE_ARN,
+                memory_execution_role_arn=config_data['agent_information']['monitoring_agent_model_info'].get('memory_execution_role'),
                 strategies=strategies,
                 description="Memory for monitoring agent with custom issue tracking",
                 event_expiry_days=7, # short term conversation expires after 7 days
@@ -352,351 +321,10 @@ logger.info(f"Going to create the agentcore gateway for this agent containing mo
 # Create gateway using the enhanced AgentCore Gateway setup
 monitoring_agent_config = config_data['agent_information']['monitoring_agent_model_info']
 gateway_config_info = monitoring_agent_config.get('gateway_config')
-# if there are any pre configured gateway credentials, they will be used here
-gateway_credentials = gateway_config_info.get('credentials')
 
 print("Setting up AgentCore Gateway from configuration...")
 
-# Function to validate credentials
-def validate_credentials(credentials_dict):
-    """
-    Validate that credentials dict contains all required fields
-    """
-    required_fields = ['gateway_id', 'mcp_url', 'access_token']
-    return all(field in credentials_dict and credentials_dict[field] for field in required_fields)
 
-# Check for existing credentials in multiple sources
-mcp_url = None
-access_token = None
-gateway_id = None
-
-# Priority 1: Check JSON credentials file (local directory first, then root directory)
-# This json file will contain contains information about the gateway such as the access
-# token fetched from connecting to Cognito to connect to the gateway
-local_credentials_path = MONITORING_GATEWAY_CREDENTIALS_PATH
-root_credentials_path = f"../{MONITORING_GATEWAY_CREDENTIALS_PATH}"
-
-# Try local path first, then root path
-credentials_path = None
-if os.path.exists(local_credentials_path):
-    credentials_path = local_credentials_path
-elif os.path.exists(root_credentials_path):
-    credentials_path = root_credentials_path
-
-if credentials_path:
-    try:
-        with open(credentials_path, 'r') as cred_file:
-            json_credentials = json.load(cred_file)
-            if validate_credentials(json_credentials):
-                mcp_url = json_credentials['mcp_url']
-                access_token = json_credentials['access_token']
-                gateway_id = json_credentials['gateway_id']
-                print(f"Using existing gateway credentials from {credentials_path}")
-                
-                # Check if token should be refreshed
-                if gateway_config_info['credentials'].get('create_new_access_token'):
-                    print("⚠️ Attempting refresh of the token...")
-                    new_token = _refresh_access_token()
-                    if new_token:
-                        access_token = new_token
-                        # Update the credentials file
-                        json_credentials['access_token'] = new_token
-                        json_credentials['updated_at'] = time.time()
-                        with open(credentials_path, 'w') as cred_file:
-                            json.dump(json_credentials, cred_file, indent=4)
-                        print("✅ Updated credentials with new access token")
-    except Exception as e:
-        print(f"Error reading JSON credentials file: {e}")
-
-if mcp_url and access_token and gateway_id:
-    print(f"Gateway ID: {gateway_id}")
-    print(f"MCP Server URL: {mcp_url}")
-    print(f"Access token: {access_token}")
-else:
-    # Add validation to ensure we have all required values before proceeding
-    missing_values = []
-    if not mcp_url:
-        missing_values.append("mcp_url")
-    if not access_token:
-        missing_values.append("access_token")
-    if not gateway_id:
-        missing_values.append("gateway_id")
-    
-    if missing_values:
-        print(f"⚠️  Missing required values: {', '.join(missing_values)}")
-        print("Attempting to create new gateway and credentials...")
-
-if not mcp_url or not access_token or not gateway_id:
-    try:
-        # Gateway configuration
-        gateway_name = gateway_config_info.get('name', 'MonitoringGateway')
-        # Step 1: Create IAM role using utils.py function
-        print("Creating IAM role...")
-        role_name = f"{gateway_name}Role"
-        # Create the AgentCore gateway role with S3 and Smithy permissions
-        agentcore_gateway_iam_role = create_agentcore_gateway_role_s3_smithy(role_name)
-        role_arn = agentcore_gateway_iam_role['Role']['Arn']
-        print(f"IAM role created: {role_arn}")
-        # Step 2: Use existing Cognito setup
-        print("Using existing Cognito setup...")
-        
-        # Get configuration values from config file
-        inbound_auth_config: Dict = gateway_config_info.get('inbound_auth')
-        cognito_config: Dict = inbound_auth_config.get('cognito')
-        logger.info(f"Going to use the inbound auth mechanism through cognito: {cognito_config}")
-        
-        # Get values from config with defaults based on config.yaml
-        RESOURCE_SERVER_ID = cognito_config.get('resource_server_id', "monitoring_agent")
-        RESOURCE_SERVER_NAME = cognito_config.get('resource_server_name', "agentcore-gateway")
-        CLIENT_NAME = cognito_config.get('client_name', "agentcore-client")
-        SCOPES = cognito_config.get('scopes')
-        logger.info(f"Going to use the following scopes from the config file: {SCOPES} for the monitoring agent.")
-        
-        # Initialize Cognito client for user pool management
-        cognito = boto3.client("cognito-idp", region_name=REGION_NAME)
-        
-        # Determine if we should create new user pool or use existing
-        create_user_pool = cognito_config.get('create_user_pool', False)
-        user_pool_name = cognito_config.get('user_pool_name', 'MCPServerPool')
-        
-        if create_user_pool:
-            # Create or get user pool using utils function
-            print(f"Creating/getting user pool: {user_pool_name}")
-            user_pool_id = get_or_create_user_pool(cognito, user_pool_name)
-        else:
-            # Use existing user pool from config
-            auth_info = gateway_config_info.get('auth_info', {})
-            discovery_url = auth_info.get('discovery_url')
-            if discovery_url:
-                # Extract pool_id from discovery URL
-                import re
-                match = re.search(r'/([^/]+)/\.well-known', discovery_url)
-                if match:
-                    user_pool_id = match.group(1)
-                    print(f"Using existing User Pool ID: {user_pool_id}")
-                else:
-                    raise ValueError(f"Could not extract pool_id from discovery_url: {discovery_url}")
-            else:
-                raise ValueError("No discovery_url found in config auth_info")
-        
-        # Create or get resource server and M2M client using utils functions
-        get_or_create_resource_server(cognito, user_pool_id, RESOURCE_SERVER_ID, RESOURCE_SERVER_NAME, SCOPES)
-        print("Resource server ensured.")
-        
-        client_id, client_secret = get_or_create_m2m_client(cognito, user_pool_id, CLIENT_NAME, RESOURCE_SERVER_ID)
-        
-        # Create scope string needed for token generation
-        scope_string = f"{RESOURCE_SERVER_ID}/gateway:read {RESOURCE_SERVER_ID}/gateway:write"
-        
-        # Set discovery URL based on user pool
-        pool_region = user_pool_id.split('_')[0] if '_' in user_pool_id else REGION_NAME
-        cognito_discovery_url = f"https://cognito-idp.{pool_region}.amazonaws.com/{user_pool_id}/.well-known/openid-configuration"
-        
-        print(f"Using Client ID: {client_id}")
-        logger.info(f"Using Cognito discovery URL: {cognito_discovery_url}")
-        # Step 3: Check if Gateway exists, then create if needed
-        print("Checking if gateway exists...")
-        gateway_client = boto3.client('bedrock-agentcore-control', region_name=REGION_NAME)
-        auth_config = {
-            "customJWTAuthorizer": { 
-                "allowedClients": [client_id],
-                "discoveryUrl": cognito_discovery_url
-            }
-        }
-        
-        # First check if gateway already exists (with pagination)
-        gateway_id = None
-        try:
-            next_token = None
-            found_gateway = False
-            
-            while not found_gateway:
-                if next_token:
-                    list_response = gateway_client.list_gateways(nextToken=next_token)
-                else:
-                    list_response = gateway_client.list_gateways()
-                
-                for gateway in list_response.get('items', []):
-                    if gateway['name'] == gateway_name:
-                        gateway_id = gateway['gatewayId']
-                        # Get the full gateway details to retrieve URL
-                        get_response = gateway_client.get_gateway(gatewayIdentifier=gateway_id)
-                        mcp_url = get_response.get('gatewayUrl')
-                        print(f"Gateway '{gateway_name}' already exists: {gateway_id}")
-                        print(f"Gateway URL: {mcp_url}")
-                        found_gateway = True
-                        break
-                
-                # Check if there are more pages
-                next_token = list_response.get('nextToken')
-                if not next_token:
-                    break
-                    
-        except Exception as e:
-            print(f"Error checking existing gateways: {e}")
-        
-        # Create gateway only if it doesn't exist
-        if not gateway_id or not mcp_url:
-            try:
-                print("Creating new gateway...")
-                create_response = gateway_client.create_gateway(
-                    name=gateway_name,
-                    roleArn=role_arn,
-                    protocolType=MCP_PROTOCOL,
-                    authorizerType=AUTH_TYPE_CUSTOM_JWT,
-                    authorizerConfiguration=auth_config, 
-                    description='AgentCore Gateway with target for monitoring tools'
-                )
-                gateway_id = create_response.get("gatewayId")
-                mcp_url = create_response.get("gatewayUrl")
-                if not mcp_url:
-                    print(f"❌ Warning: Gateway URL is None in create response")
-                    print(f"Full create response: {create_response}")
-                    # Try to get the gateway URL using the gateway ID
-                    if gateway_id:
-                        try:
-                            get_response = gateway_client.get_gateway(gatewayIdentifier=gateway_id)
-                            mcp_url = get_response.get('gatewayUrl')
-                            print(f"Retrieved gateway URL via get_gateway: {mcp_url}")
-                        except Exception as get_error:
-                            print(f"Error getting gateway URL: {get_error}")
-                print(f"Gateway created: {gateway_id}")
-                print(f"Gateway URL: {mcp_url}")
-            except Exception as e:
-                if "ConflictException" in str(e) and "already exists" in str(e):
-                    print(f"Gateway '{gateway_name}' already exists. Attempting to use existing gateway...")
-                    # Extract gateway name from error message if possible
-                    gateway_name_from_error = None
-                    try:
-                        # Try to extract the actual gateway name from the error message
-                        error_str = str(e)
-                        if "name '" in error_str and "' already exists" in error_str:
-                            start = error_str.find("name '") + 6
-                            end = error_str.find("' already exists")
-                            gateway_name_from_error = error_str[start:end]
-                            print(f"Extracted gateway name from error: {gateway_name_from_error}")
-                    except Exception:
-                        pass
-                    
-                    # List existing gateways to find the one with our name (with pagination)
-                    try:
-                        existing_gateway = None
-                        search_names = [gateway_name]
-                        if gateway_name_from_error and gateway_name_from_error != gateway_name:
-                            search_names.append(gateway_name_from_error)
-                        print(f"Searching for gateways with names: {search_names}")
-                        
-                        next_token = None
-                        all_gateways = []
-                        
-                        # Paginate through all gateways
-                        while True:
-                            if next_token:
-                                list_response = gateway_client.list_gateways(nextToken=next_token)
-                            else:
-                                list_response = gateway_client.list_gateways()
-                            
-                            logger.info(f"The gateways that are available in {REGION_NAME} (page): {list_response}")
-                            current_items = list_response.get('items', [])
-                            all_gateways.extend(current_items)
-                            
-                            # Search through current page items
-                            for gateway in current_items:
-                                if gateway['name'] in search_names:
-                                    existing_gateway = gateway
-                                    break
-                            
-                            if existing_gateway:
-                                break
-                                
-                            # Check if there are more pages
-                            next_token = list_response.get('nextToken')
-                            if not next_token:
-                                break
-                        
-                        if existing_gateway:
-                            gateway_id = existing_gateway['gatewayId']
-                            # Get the gateway URL using the gateway ID
-                            try:
-                                get_response = gateway_client.get_gateway(gatewayIdentifier=gateway_id)
-                                mcp_url = get_response.get('gatewayUrl')
-                                if not mcp_url:
-                                    print(f"❌ Warning: Gateway URL is None for gateway {gateway_id}")
-                                    print(f"Full gateway response: {get_response}")
-                                print(f"✅ Using existing gateway: {gateway_id}")
-                                print(f"Gateway URL: {mcp_url}")
-                            except Exception as get_error:
-                                print(f"Error getting gateway details: {get_error}")
-                                raise e
-                        else:
-                            print(f"Could not find existing gateway with any of these names: {search_names}")
-                            print("Available gateways:")
-                            for gw in all_gateways:
-                                print(f"  - Name: '{gw.get('name')}' (ID: {gw.get('gatewayId')})")
-                            raise e
-                    except Exception as list_error:
-                        print(f"Error retrieving existing gateway: {list_error}")
-                        raise e
-                else:
-                    raise e
-
-        # Step 4: Create gateway targets from configuration
-        print("Creating gateway targets...")
-        if gateway_config_info.get('existing_target') and gateway_config_info.get('target_name'):
-            print(f"Using existing target: {gateway_config_info.get('target_name')}")
-        else:
-            created_targets = create_targets_from_config(gateway_id, gateway_config_info, gateway_config_info.get('bucket_name'))
-            print(f"✅ Successfully created {len(created_targets)} targets")
-        # Step 5: Get access token using utils function
-        print("Getting access token...")
-        token_response = get_token(user_pool_id, client_id, client_secret, scope_string, REGION_NAME)
-        print(f"Token response: {token_response}")
-        if "error" in token_response:
-            raise RuntimeError(f"Failed to get access token: {token_response['error']}")
-        access_token = token_response["access_token"]
-        print(f"✅ OpenAPI Gateway created successfully!")
-        print(f"Gateway ID: {gateway_id}")
-        print(f"MCP Server URL: {mcp_url}")
-        print(f"Access Token: {access_token[:20]}...")
-        # Create a dictionary with the credentials
-        credentials = {
-            "mcp_url": mcp_url,
-            "access_token": access_token,
-            "gateway_id": gateway_id,
-            "created_at": time.time()
-        }
-        # Write the credentials to a JSON file
-        with open(MONITORING_GATEWAY_CREDENTIALS_PATH, 'w') as cred_file:
-            json.dump(credentials, cred_file, indent=4)
-        print(f"Credentials saved to {os.path.abspath(MONITORING_GATEWAY_CREDENTIALS_PATH)}")
-        
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-
-# Final validation to ensure mcp_url is not None
-if not mcp_url:
-    print("❌ ERROR: mcp_url is None. Gateway creation or retrieval failed.")
-    print("Please check the gateway creation logs above for errors.")
-    
-    # Try one more time to get the gateway URL if we have a gateway_id
-    if gateway_id:
-        print(f"🔄 Attempting to retrieve gateway URL using gateway_id: {gateway_id}")
-        try:
-            gateway_client = boto3.client('bedrock-agentcore-control', region_name=REGION_NAME)
-            get_response = gateway_client.get_gateway(gatewayIdentifier=gateway_id)
-            mcp_url = get_response.get('gatewayUrl')
-            if mcp_url:
-                print(f"✅ Successfully retrieved gateway URL: {mcp_url}")
-            else:
-                print(f"❌ Gateway URL is still None in get_gateway response: {get_response}")
-        except Exception as retry_error:
-            print(f"❌ Failed to retrieve gateway URL: {retry_error}")
-    
-    # If still no mcp_url, raise error
-    if not mcp_url:
-        raise ValueError("mcp_url cannot be None - gateway setup failed")
-        
 prompt_template_path: str = f'{PROMPT_TEMPLATE_DIR}/{config_data["agent_information"]["prompt_templates"].get("monitoring_agent", "monitoring_agent_prompt_template.txt")}'
 logger.info(f"Going to read the monitoring agent prompt template from: {prompt_template_path}")
 with open(prompt_template_path, 'r', encoding='utf-8') as f:
@@ -719,21 +347,6 @@ from bedrock_agentcore.runtime import BedrockAgentCoreApp
 # Create app instance for entrypoint decorator
 app = BedrockAgentCoreApp()
 
-# Print hardcoded parameters for config.yaml reference
-print("\n" + "="*60)
-print("📋 HARDCODED PARAMETERS FOR CONFIG.YAML:")
-print("="*60)
-print(f"REGION_NAME: {REGION_NAME}")
-print(f"EXECUTION_ROLE_ARN: {EXECUTION_ROLE_ARN}")
-print(f"MONITORING_GATEWAY_NAME: {MONITORING_GATEWAY_NAME}")
-print(f"CONFIG_FNAME: {CONFIG_FNAME}")
-print(f"MONITORING_CUSTOM_EXTRACTION_PROMPT_FPATH: {MONITORING_CUSTOM_EXTRACTION_PROMPT_FPATH}")
-print(f"MONITORING_CONSOLIDATION_EXTRACTION_PROMPT_FPATH: {MONITORING_CONSOLIDATION_EXTRACTION_PROMPT_FPATH}")
-print(f"MONITORING_GATEWAY_CREDENTIALS_PATH: {MONITORING_GATEWAY_CREDENTIALS_PATH}")
-print(f"MCP_PROTOCOL: {MCP_PROTOCOL}")
-print(f"AUTH_TYPE_CUSTOM_JWT: {AUTH_TYPE_CUSTOM_JWT}")
-print("="*60)
-
 # Create MCP client and agent at module level for reuse
 from strands.tools.mcp.mcp_client import MCPClient
 from mcp.client.streamable_http import streamablehttp_client 
@@ -744,49 +357,31 @@ def create_streamable_http_transport():
     Automatically refreshes token if connection fails
     """
     try:
-        # Read credentials from file to get current token
-        with open(MONITORING_GATEWAY_CREDENTIALS_PATH, 'r') as cred_file:
-            json_credentials = json.load(cred_file)
-            current_access_token = json_credentials['access_token']
-            current_mcp_url = json_credentials['mcp_url']
+        current_mcp_url = gateway_config_info.get('url')
+        scope_string = "monitoring-agentcore-gateway-id/gateway:read monitoring-agentcore-gateway-id/gateway:write"
+        token_response = get_token(
+            config_data['idp_setup'].get('user_pool_id'),
+            config_data['idp_setup'].get('client_id'),
+            config_data['idp_setup'].get('client_secret'),
+            scope_string,
+        )
+        print(f"Token response: {token_response}")
+        # Check if token request was successful
+        if "error" in token_response:
+            raise Exception(f"Token request failed: {token_response['error']}")
         
-        try:
-            response = streamablehttp_client(current_mcp_url, headers={"Authorization": f"Bearer {current_access_token}"})
-            return response
-        except Exception as auth_error:
-            logger.warning(f"Authentication failed, attempting to refresh token: {auth_error}")
+        if "access_token" not in token_response:
+            raise Exception(f"No access_token in response: {token_response}")
             
-            # Try to refresh the token
-            new_token = _refresh_access_token()
-            if new_token:
-                # Update credentials file with new token
-                json_credentials['access_token'] = new_token
-                json_credentials['updated_at'] = time.time()
-                with open(MONITORING_GATEWAY_CREDENTIALS_PATH, 'w') as cred_file:
-                    json.dump(json_credentials, cred_file, indent=4)
-                
-                # Retry connection with new token
-                response = streamablehttp_client(current_mcp_url, headers={"Authorization": f"Bearer {new_token}"})
-                logger.info("✅ Successfully connected with refreshed token")
-                return response
-            else:
-                logger.error("❌ Failed to refresh access token")
-                raise auth_error
-                
-    except Exception as e:
-        logger.error(f"An error occurred while connecting to the MCP server: {e}")
-        raise e
+        current_access_token = token_response["access_token"]
+        response = streamablehttp_client(current_mcp_url, headers={"Authorization": f"Bearer {current_access_token}"})
+        return response
+    except Exception as auth_error:
+        logger.error(f"Authentication failed: {auth_error}")
+        raise
 
 # Initialize MCP client
 print(f"Going to start the MCP session...")
-
-# Debug: Test if we can read credentials
-try:
-    with open(MONITORING_GATEWAY_CREDENTIALS_PATH, 'r') as debug_file:
-        debug_creds = json.load(debug_file)
-        print(f"DEBUG: Credentials available: URL={debug_creds.get('mcp_url')}, Token={debug_creds.get('access_token')[:20]}...")
-except Exception as e:
-    print(f"DEBUG: Error reading credentials: {e}")
 
 mcp_client = MCPClient(create_streamable_http_transport)
 print(f"Started the MCP session client...")
@@ -804,14 +399,16 @@ def invoke_agent_with_mcp_session(user_message):
             print(f"Loaded {len(gateway_tools)} tools from Gateway...")
             # Create agent with Gateway MCP tools + memory hooks + observability hooks
             hooks = [monitoring_hooks]
+            MONITORING_AGENT_SYSTEM_PROMPT_W_USER_QUESTION: str = MONITORING_AGENT_SYSTEM_PROMPT.format(question=user_message)
             # Initialize agent at module level
             agent = Agent(
-                system_prompt=MONITORING_AGENT_SYSTEM_PROMPT,
+                system_prompt=MONITORING_AGENT_SYSTEM_PROMPT_W_USER_QUESTION,
                 model=bedrock_model,
                 hooks=hooks,
-                tools=gateway_tools
+                tools=gateway_tools,
             )
             response = agent(user_message)
+            print(f"Response: {response}")
             return response.message['content'][0]['text']
     except Exception as tools_error:
         print(f"❌ Error listing tools from Gateway MCP server: {tools_error}")
@@ -899,8 +496,8 @@ def interactive_cli(session_id: str):
 
             resp = ask_agent(q, session_id)
             # Filter and display clean response
-            clean_resp = filter_agent_output(resp)
-            print(f"agent> {clean_resp}\n")
+            # clean_resp = filter_agent_output(resp)
+            print(f"agent> {resp}\n")
         except KeyboardInterrupt:
             print("\nbye 👋")
             break
