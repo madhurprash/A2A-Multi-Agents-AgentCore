@@ -28,7 +28,6 @@ from botocore.exceptions import ClientError
 from strands import Agent
 from datetime import datetime
 from dotenv import load_dotenv
-from strands_tools import swarm
 from typing import Dict, Any, Optional
 from strands.models import BedrockModel
 # import the memory client 
@@ -46,7 +45,6 @@ from opentelemetry import context, baggage
 # for this monitoring agent
 from bedrock_agentcore.memory.constants import StrategyType
 # This is for the strands prebuilt tool
-from strands_tools.agent_core_memory import AgentCoreMemoryToolProvider
 # Configure loggers - suppress debug output for cleaner UI
 logging.getLogger("strands").setLevel(logging.WARNING)
 logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -359,11 +357,12 @@ def create_streamable_http_transport():
     try:
         current_mcp_url = gateway_config_info.get('url')
         scope_string = "monitoring-agentcore-gateway-id/gateway:read monitoring-agentcore-gateway-id/gateway:write"
-        token_response = get_token(
-            config_data['idp_setup'].get('user_pool_id'),
-            config_data['idp_setup'].get('client_id'),
-            config_data['idp_setup'].get('client_secret'),
-            scope_string,
+        token_response = get_access_token(
+            user_pool_id=config_data['idp_setup'].get('user_pool_id'),
+            client_id=config_data['idp_setup'].get('client_id'),
+            client_secret=config_data['idp_setup'].get('client_secret'),
+            scope_string=scope_string,
+            discovery_url=config_data['idp_setup'].get('discovery_url'),
         )
         print(f"Token response: {token_response}")
         # Check if token request was successful

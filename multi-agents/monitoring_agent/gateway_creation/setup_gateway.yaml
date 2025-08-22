@@ -31,5 +31,5 @@ gateway_config:
   # Fetch this information from the idp_setup/cognito_config.json after running the 
   # cognito script. If not, then provide this information from your IdP of choice
   auth_info:
-    discovery_url: https://cognito-idp.us-west-2.amazonaws.com/us-west-2_9vgd5BnHn/.well-known/openid-configuration
-    client_id: c8qdlav89fr8bjk6s8dl34ajs
+    discovery_url: https://cognito-idp.us-west-2.amazonaws.com/us-west-2_4tapKqA3u/.well-known/openid-configuration
+    client_id: 6jo3iqprnn92afe1fei82o8hle

@@ -3,7 +3,7 @@
 import json
 import sys
 import subprocess
-from utils import get_token, load_config
+from utils import get_access_token, load_config
 
 
 def main():
@@ -25,6 +25,7 @@ def main():
     user_pool_id = idp_setup.get('user_pool_id')
     client_id = idp_setup.get('client_id')
     client_secret = idp_setup.get('client_secret')
+    discovery_url = idp_setup.get('discovery_url')
     
     if not all([user_pool_id, client_id, client_secret]):
         print("❌ Missing IDP configuration in config.yaml")
@@ -36,8 +37,13 @@ def main():
     print("🔐 Getting OAuth token...")
     
     # Get token
-    token_response = get_token(user_pool_id, client_id, client_secret, scope_string)
-    
+    token_response = get_access_token(
+            user_pool_id=user_pool_id,
+            client_id=client_id,
+            client_secret=client_secret,
+            scope_string=scope_string,
+            discovery_url=discovery_url,
+        )
     if "error" in token_response:
         print(f"❌ Token request failed: {token_response['error']}")
         sys.exit(1)

@@ -106,6 +106,7 @@ class HostAgent:
             tools=[
                 self.send_message,
             ],
+        )
 
     def root_instruction(self, context) -> str:
         return f"""

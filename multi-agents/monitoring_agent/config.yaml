@@ -40,7 +40,7 @@ agent_information:
     gateway_config:
       # Run the steps in the gateway_creation folder to input the parameters below
       name: monitoring-gateway
-      url: https://monitoring-gateway-uplffpejsd.gateway.bedrock-agentcore.us-west-2.amazonaws.com/mcp
+      url: https://monitoring-gateway-xlapsfpffa.gateway.bedrock-agentcore.us-west-2.amazonaws.com/mcp
     # This is if the agent is already configured and needs to be invokeds
     agent_arn: 
     # set this to false if the agent arn is provided from above
@@ -53,10 +53,10 @@ agent_information:
 # to get the values from that you can input below. This can be done through
 # cognito or even through another IdP
 idp_setup:
-  user_pool_id: us-west-2_9vgd5BnHn
-  discovery_url: https://cognito-idp.us-west-2.amazonaws.com/us-west-2_9vgd5BnHn/.well-known/openid-configuration
-  client_secret: jtddnorauplie79ls0ui41f2mbu2tm7m9r6dq87uo00729f6mk6
-  client_id: c8qdlav89fr8bjk6s8dl34ajs
+  user_pool_id: us-west-2_4tapKqA3u
+  discovery_url: https://cognito-idp.us-west-2.amazonaws.com/us-west-2_4tapKqA3u/.well-known/openid-configuration
+  client_secret: 6buaehauhbc1j3fsb8g89a6nlv0o859j16j6ib56jvaojb7kfsg
+  client_id: 6jo3iqprnn92afe1fei82o8hle
 
 
 # this is information about the cloudwatch related tools that will be used

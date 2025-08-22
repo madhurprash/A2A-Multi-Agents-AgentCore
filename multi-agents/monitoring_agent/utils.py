@@ -485,27 +485,104 @@ def create_agentcore_gateway_role(gateway_name):
 
     return agentcore_iam_role
 
-def get_token(user_pool_id: str, client_id: str, client_secret: str, scope_string: str) -> dict:
-    try:
-        # Extract just the pool ID part after the underscore and add "mcp" prefix
-        pool_id_suffix = user_pool_id.split("_")[1] if "_" in user_pool_id else user_pool_id
-        user_pool_domain = f"mcp{pool_id_suffix.lower()}"
-        url = f"https://{user_pool_domain}.auth.{boto3.session.Session().region_name}.amazoncognito.com/oauth2/token"
-        headers = {"Content-Type": "application/x-www-form-urlencoded"}
-        data = {
-            "grant_type": "client_credentials",
-            "client_id": client_id,
-            "client_secret": client_secret,
-            "scope": scope_string,
-        }
-        print(client_id)
-        print(client_secret)
-        response = requests.post(url, headers=headers, data=data)
-        response.raise_for_status()
-        return response.json()
+from urllib.parse import urlparse, urlunparse
 
-    except requests.exceptions.RequestException as err:
-        return {"error": str(err)}
+def _normalize_cognito_token_endpoint(url: str) -> str:
+    """
+    Cognito user pool token endpoint must be .../<poolId>/oauth2/token.
+    Normalize if discovery returns .../<poolId>/token (rare/misread).
+    """
+    try:
+        p = urlparse(url)
+        if p.netloc.startswith("cognito-idp.") and p.path.endswith("/token") and "/oauth2/" not in p.path:
+            fixed_path = p.path.replace("/token", "/oauth2/token")
+            return urlunparse((p.scheme, p.netloc, fixed_path, "", "", ""))
+    except Exception:
+        pass
+    return url
+
+def get_access_token(
+    *,
+    user_pool_id: str,
+    client_id: str,
+    client_secret: str,
+    scope_string: str,
+    region: Optional[str] = None,
+    discovery_url: Optional[str] = None,
+    timeout: int = 15,
+) -> Dict:
+    """
+    Retrieve an OAuth2 access token from an Amazon Cognito *user pool* using the client_credentials grant.
+
+    Args:
+        user_pool_id: e.g., "us-west-2_4tapKqA3u"
+        client_id, client_secret: your *confidential* app client credentials
+        scope_string: space-separated resource server scopes, e.g.
+            "monitoring-agentcore-gateway-id/gateway.read monitoring-agentcore-gateway-id/gateway.write"
+        region: optional; if omitted, derived from user_pool_id (before the underscore)
+        discovery_url: optional; if provided, takes precedence to fetch token_endpoint
+        timeout: request timeout (seconds)
+
+    Returns:
+        dict with 'access_token' on success, or {'error': '...'} on failure.
+    """
+    try:
+        # 1) Determine token endpoint
+        token_endpoint: str
+        if discovery_url:
+            disc = requests.get(discovery_url, timeout=timeout)
+            disc.raise_for_status()
+            token_endpoint = disc.json().get("token_endpoint", "")
+            if not token_endpoint:
+                return {"error": f"discovery missing token_endpoint at {discovery_url}"}
+            token_endpoint = _normalize_cognito_token_endpoint(token_endpoint)
+        else:
+            # Build canonical user-pool endpoint: https://cognito-idp.<region>.amazonaws.com/<poolId>/oauth2/token
+            if region is None:
+                # Derive region from the pool id prefix (before the underscore)
+                if "_" not in user_pool_id:
+                    return {"error": f"Cannot derive region from user_pool_id '{user_pool_id}'"}
+                region = user_pool_id.split("_", 1)[0]
+            token_endpoint = f"https://cognito-idp.{region}.amazonaws.com/{user_pool_id}/oauth2/token"
+
+        form = {
+            "grant_type": "client_credentials",
+            "scope": scope_string,  # space-separated
+        }
+
+        # 2) Try HTTP Basic client authentication (preferred)
+        resp = requests.post(
+            token_endpoint,
+            data=form,
+            auth=(client_id, client_secret),
+            headers={"Accept": "application/json"},
+            timeout=timeout,
+        )
+
+        # 3) If Basic auth fails *specifically* with invalid_client, retry with form-secret style
+        if resp.status_code in (400, 401) and ("invalid_client" in resp.text.lower()):
+            form_with_secret = {
+                **form,
+                "client_id": client_id,
+                "client_secret": client_secret,
+            }
+            resp = requests.post(
+                token_endpoint,
+                data=form_with_secret,
+                headers={"Accept": "application/json",
+                         "Content-Type": "application/x-www-form-urlencoded"},
+                timeout=timeout,
+            )
+
+        if resp.status_code >= 400:
+            return {
+                "error": f"{resp.status_code} {resp.text[:512]}",
+                "token_endpoint": token_endpoint,
+            }
+        return resp.json()
+
+    except requests.RequestException as e:
+        return {"error": str(e)}
 
 def create_agentcore_gateway_role_s3_smithy(gateway_name):
     iam_client = boto3.client('iam')
@@ -1094,3 +1171,109 @@ def create_targets_from_config(gateway_id, gateway_config, bucket_name):
                 continue
     
     return created_targets
+
+
+def create_cognito_domain(
+    user_pool_id: str, 
+    domain_name: Optional[str] = None,
+    region: Optional[str] = None
+) -> Dict[str, str]:
+    """
+    Create a domain for the Cognito User Pool.
+    
+    Args:
+        user_pool_id: The Cognito User Pool ID
+        domain_name: Optional custom domain name. If not provided, creates one from pool ID
+        region: AWS region. If not provided, uses current session region
+        
+    Returns:
+        Dictionary containing domain information with 'domain' and 'domain_url' keys
+        
+    Raises:
+        Exception: If domain creation fails
+    """
+    if region is None:
+        boto_session = Session()
+        region = boto_session.region_name
+    
+    cognito_client = boto3.client('cognito-idp', region_name=region)
+    
+    try:
+        # Check if domain already exists for this user pool
+        try:
+            response = cognito_client.describe_user_pool(UserPoolId=user_pool_id)
+            user_pool = response.get('UserPool', {})
+            existing_domain = user_pool.get('Domain')
+            
+            if existing_domain:
+                domain_url = f"https://{existing_domain}.auth.{region}.amazoncognito.com"
+                logger.info(f"Domain already exists for user pool {user_pool_id}: {existing_domain}")
+                return {
+                    'domain': existing_domain,
+                    'domain_url': domain_url,
+                    'status': 'existing'
+                }
+        except Exception as e:
+            logger.error(f"Error checking existing domain: {e}")
+        
+        # Generate domain name if not provided
+        if domain_name is None:
+            # Create domain name from pool ID - remove first underscore and convert to lowercase
+            if '_' in user_pool_id:
+                domain_name = user_pool_id.replace('_', '', 1).lower()
+            else:
+                domain_name = user_pool_id.lower()
+        
+        # Ensure domain name is valid (alphanumeric and hyphens only, lowercase)
+        domain_name = domain_name.lower().replace('_', '-')
+        
+        logger.info(f"Creating Cognito domain: {domain_name} for pool: {user_pool_id}")
+        
+        # Create the domain
+        response = cognito_client.create_user_pool_domain(
+            Domain=domain_name,
+            UserPoolId=user_pool_id
+        )
+        
+        domain_url = f"https://{domain_name}.auth.{region}.amazoncognito.com"
+        
+        logger.info(f"Successfully created domain: {domain_name}")
+        logger.info(f"Domain URL: {domain_url}")
+        
+        return {
+            'domain': domain_name,
+            'domain_url': domain_url,
+            'status': 'created',
+            'cloudfront_domain': response.get('CloudFrontDomain', '')
+        }
+        
+    except cognito_client.exceptions.InvalidParameterException as e:
+        if 'Domain already associated' in str(e):
+            # Domain might be associated with another pool
+            logger.warning(f"Domain {domain_name} already in use: {e}")
+            # Try with a timestamp suffix
+            import time
+            timestamp_suffix = str(int(time.time()))[-6:]
+            new_domain_name = f"{domain_name}-{timestamp_suffix}"
+            
+            logger.info(f"Trying with timestamped domain: {new_domain_name}")
+            response = cognito_client.create_user_pool_domain(
+                Domain=new_domain_name,
+                UserPoolId=user_pool_id
+            )
+            
+            domain_url = f"https://{new_domain_name}.auth.{region}.amazoncognito.com"
+            
+            return {
+                'domain': new_domain_name,
+                'domain_url': domain_url,
+                'status': 'created_with_suffix',
+                'cloudfront_domain': response.get('CloudFrontDomain', '')
+            }
+        else:
+            logger.error(f"Invalid parameter for domain creation: {e}")
+            raise
+            
+    except Exception as e:
+        logger.error(f"Error creating Cognito domain: {e}")
+        raise
