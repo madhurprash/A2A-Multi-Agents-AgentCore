@@ -7,6 +7,10 @@ agent_card_info:
   identity_group: monitoring-agent
   # Agent ARN from bedrock agentcore.yaml file
   agent_arn: arn:aws:bedrock-agentcore:us-west-2:218208277580:runtime/monitoring_agent-IdA4di8aOj
+  # OAuth client ID for the monitoring agent
+  client_id: "7d9rshmguboh6vt9bqn6et4dtp"
+  # OAuth discovery URL for the monitoring agent
+  discovery_url: "https://cognito-idp.us-west-2.amazonaws.com/us-west-2_6cWXWAhF6/.well-known/openid_configuration"
   # Agent tags for categorization
   agent_tags:
     - monitoring

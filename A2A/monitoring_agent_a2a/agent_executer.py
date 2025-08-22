@@ -59,6 +59,7 @@ class MonitoringAgentCoreExecutor(AgentExecutor):
         client_id: str,
         client_secret: str,
         scope: str,
+        discovery_url: str,
         stream: bool = True,
         request_timeout_s: int = 30,
     ) -> None:
@@ -70,6 +71,7 @@ class MonitoringAgentCoreExecutor(AgentExecutor):
         self.client_id = client_id
         self.client_secret = client_secret
         self.scope = scope
+        self.discovery_url = discovery_url
 
         self.stream = stream
         self.http = httpx.AsyncClient(timeout=httpx.Timeout(request_timeout_s))
@@ -81,7 +83,13 @@ class MonitoringAgentCoreExecutor(AgentExecutor):
         if self._token_cache.valid(now_ts):
             return self._token_cache.token  # type: ignore
 
-        tok = get_token(self.user_pool_id, self.client_id, self.client_secret, self.scope, self.)
+        tok = get_token(
+            user_pool_id=self.user_pool_id,
+            client_id=self.client_id,
+            client_secret=self.client_secret,
+            scope_string=self.scope,
+            discovery_url=self.discovery_url
+        )
         if "access_token" not in tok:
             logger.error("Token fetch failed: %s", {k: tok.get(k) for k in ("error", "error_description")})
             raise ServerError(error=InternalError())

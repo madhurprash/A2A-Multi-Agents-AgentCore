@@ -20,17 +20,14 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-
 class MissingConfigError(Exception):
     pass
-
 
 def required_env(name: str) -> str:
     v = os.getenv(name)
     if not v:
         raise MissingConfigError(f"Missing required env: {name}")
     return v
-
 
 def load_config() -> dict:
     """Load configuration from config.yaml file."""
@@ -42,7 +39,6 @@ def load_config() -> dict:
         raise MissingConfigError(f"Configuration file not found: {config_path}")
     except yaml.YAMLError as e:
         raise MissingConfigError(f"Error parsing config file: {e}")
-
 
 def main():
     """Starts the AgentCore Monitoring Agent A2A server."""
@@ -71,6 +67,7 @@ def main():
         client_id = agent_config['client_id']
         client_secret = agent_config['client_secret']
         scope = agent_config['scope']
+        discovery_url = agent_config.get('discovery_url')
         
         
         print(f"Base URL: {base_url}")
@@ -125,6 +122,7 @@ def main():
                 client_id=client_id,
                 client_secret=client_secret,
                 scope=scope,
+                discovery_url=discovery_url,
                 stream=config['executor_config']['stream'],
             ),
             task_store=InMemoryTaskStore(),

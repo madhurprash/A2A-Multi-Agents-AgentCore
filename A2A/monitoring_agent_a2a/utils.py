@@ -46,63 +46,40 @@ def _build_agent_url(agent_arn: str) -> str:
     return f"{endpoint}/runtimes/{escaped}/invocations?qualifier=DEFAULT"
 
 
-def _get_identity_secrets(identity_group: str) -> Dict[str, str]:
-    """Get OAuth credentials from AWS Secrets Manager using Bedrock AgentCore identity.
+def _get_client_secret(identity_group: str) -> str:
+    """Get OAuth client secret from AWS Secrets Manager using Bedrock AgentCore identity.
     
     Args:
         identity_group: The identity group name (monitoring-agent)
         
     Returns:
-        Dictionary containing OAuth credentials
+        The client secret string
         
     Raises:
-        Exception: If secrets cannot be retrieved
+        Exception: If client secret cannot be retrieved
     """
     secrets_client = boto3.client('secretsmanager', region_name='us-west-2')
     
     try:
-        # For monitoring-agent, we have specific known values
-        if identity_group == 'monitoring-agent':
-            # Get client secret from the referenced secrets manager
-            # The client secret is stored in Secrets Manager as shown in the provider config
-            try:
-                # Try to get the client secret from secrets manager
-                # This would be the secret referenced by the OAuth provider
-                response = secrets_client.get_secret_value(SecretId=f"bedrock-agentcore/{identity_group}/client-secret")
-                import json
-                secret_data = json.loads(response['SecretString'])
-                client_secret = secret_data.get('client_secret')
-            except Exception:
-                # If we can't find the secret, we'll need to ask the user to provide it
-                raise Exception(
-                    "Client secret not found in Secrets Manager. "
-                    "Please ensure the client secret from the Bedrock AgentCore OAuth provider is stored in "
-                    f"Secrets Manager under 'bedrock-agentcore/{identity_group}/client-secret'"
-                )
+        print(f"Identity group is monitoring, fetching the client secret...")
+        # Get client secret from the referenced secrets manager
+        # The client secret is stored in Secrets Manager as shown in the provider config
+        response = secrets_client.get_secret_value(SecretId=f"bedrock-agentcore-identity!default/oauth2/{identity_group}")
+        import json
+        secret_data = json.loads(response['SecretString'])
+        print(f"Fetched the secrets data from the identity secrets provider: {secret_data}")
+        client_secret = secret_data.get('client_secret')
+        
+        if not client_secret:
+            raise Exception("client_secret not found in the secret data")
             
-            return {
-                'user_pool_id': 'us-west-2_4tapKqA3u',  # From the discovery URL
-                'client_id': '6jo3iqprnn92afe1fei82o8hle',  # From the provider config
-                'client_secret': client_secret,
-                'scope': f'{identity_group}-agentcore-gateway-id/gateway.read {identity_group}-agentcore-gateway-id/gateway.write',
-                'discovery_url': 'https://cognito-idp.us-west-2.amazonaws.com/us-west-2_4tapKqA3u/.well-known/openid-configuration'
-            }
-        else:
-            # For other identity groups, try the old approach
-            secret_name = f"{identity_group}-oauth-credentials"
-            response = secrets_client.get_secret_value(SecretId=secret_name)
-            import json
-            secrets = json.loads(response['SecretString'])
-            
-            return {
-                'user_pool_id': secrets.get('user_pool_id'),
-                'client_id': secrets.get('client_id'),
-                'client_secret': secrets.get('client_secret'),
-                'scope': secrets.get('scope'),
-                'discovery_url': secrets.get('discovery_url')
-            }
+        return client_secret
     except Exception as e:
-        raise Exception(f"Failed to retrieve secrets for identity group '{identity_group}': {str(e)}")
+        raise Exception(
+            f"Failed to retrieve client secret for identity group '{identity_group}': {str(e)}. "
+            "Please ensure the client secret from the Bedrock AgentCore OAuth provider is stored in "
+            f"Secrets Manager under 'bedrock-agentcore-identity!default/oauth2/{identity_group}'"
+        )
 
 from urllib.parse import urlparse, urlunparse
 
@@ -220,6 +197,7 @@ def get_agent_config(config_file: str = "config.yaml") -> Dict[str, Any]:
         - client_id: OAuth client ID
         - client_secret: OAuth client secret
         - scope: OAuth scope
+        - discovery_url: OAuth discovery URL
         
     Raises:
         Exception: If configuration cannot be loaded or is invalid
@@ -229,8 +207,11 @@ def get_agent_config(config_file: str = "config.yaml") -> Dict[str, Any]:
     
     # Extract agent card info
     agent_card_info = config.get('agent_card_info', {})
+    print(f"Fetching the agent information: {agent_card_info}")
     agent_arn = agent_card_info.get('agent_arn')
     identity_group = agent_card_info.get('identity_group')
+    client_id = agent_card_info.get('client_id')
+    discovery_url = agent_card_info.get('discovery_url')
     
     if not agent_arn:
         raise ValueError("agent_arn not found in configuration")
@@ -238,11 +219,28 @@ def get_agent_config(config_file: str = "config.yaml") -> Dict[str, Any]:
     if not identity_group:
         raise ValueError("identity_group not found in configuration")
     
+    if not client_id:
+        raise ValueError("client_id not found in configuration")
+    
+    if not discovery_url:
+        raise ValueError("discovery_url not found in configuration")
+    
     # Build the base URL from the ARN
     base_url = _build_agent_url(agent_arn)
     
-    # Get credentials from secrets manager
-    credentials = _get_identity_secrets(identity_group)
+    # Get client secret from secrets manager
+    client_secret = _get_client_secret(identity_group)
+    
+    # Extract user pool ID from discovery URL
+    # Discovery URL format: https://cognito-idp.region.amazonaws.com/user_pool_id/.well-known/openid_configuration
+    import re
+    user_pool_match = re.search(r'/([^/]+)/\.well-known/openid_configuration', discovery_url)
+    if not user_pool_match:
+        raise ValueError(f"Unable to extract user_pool_id from discovery_url: {discovery_url}")
+    user_pool_id = user_pool_match.group(1)
+    
+    # Default scope for monitoring agent gateway access
+    scope = f"monitoring-agentcore-gateway-id/gateway.read monitoring-agentcore-gateway-id/gateway.write"
     
     # Generate a session ID (you might want to customize this logic)
     agent_session_id = f"session-{identity_group}-001"
@@ -251,9 +249,9 @@ def get_agent_config(config_file: str = "config.yaml") -> Dict[str, Any]:
         'base_url': base_url,
         'agent_arn': agent_arn,
         'agent_session_id': agent_session_id,
-        'user_pool_id': credentials['user_pool_id'],
-        'client_id': credentials['client_id'],
-        'client_secret': credentials['client_secret'],
-        'scope': credentials['scope'],
-        'discovery_url': credentials.get('discovery_url')
+        'user_pool_id': user_pool_id,
+        'client_id': client_id,
+        'client_secret': client_secret,
+        'scope': scope,
+        'discovery_url': discovery_url
     }
