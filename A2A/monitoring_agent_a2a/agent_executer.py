@@ -61,6 +61,7 @@ class MonitoringAgentCoreExecutor(AgentExecutor):
         scope: str,
         discovery_url: str,
         stream: bool = True,
+        identity_provider,
         request_timeout_s: int = 30,
     ) -> None:
         self.base_url = base_url.rstrip("/")
@@ -74,6 +75,7 @@ class MonitoringAgentCoreExecutor(AgentExecutor):
         self.discovery_url = discovery_url
 
         self.stream = stream
+        self.identity_provider = identity_provider
         self.http = httpx.AsyncClient(timeout=httpx.Timeout(request_timeout_s))
         self._token_cache = _OAuthTokenCache()
 

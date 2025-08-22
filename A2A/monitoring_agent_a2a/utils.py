@@ -31,7 +31,7 @@ def _load_yaml_config(file_path: str) -> Dict[str, Any]:
 
 
 def _build_agent_url(agent_arn: str) -> str:
-    """Build agent invocation URL from ARN.
+    """Build agent invocation URL from ARN that is generated using agentcore runtime.
     
     Args:
         agent_arn: The Bedrock AgentCore ARN

@@ -247,8 +247,6 @@ def _get_initialized_host_agent_sync():
     async def _async_main():
         # Hardcoded URLs for the agents
         agent_urls = [
-            "http://localhost:10002", 
-            "http://localhost:10003", 
             "http://localhost:10004", 
         ]
 
@@ -272,4 +270,3 @@ def _get_initialized_host_agent_sync():
             raise
 
 root_agent = _get_initialized_host_agent_sync()
-    

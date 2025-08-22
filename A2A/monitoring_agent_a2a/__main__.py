@@ -68,11 +68,13 @@ def main():
         client_secret = agent_config['client_secret']
         scope = agent_config['scope']
         discovery_url = agent_config.get('discovery_url')
+        identity_provider = agent_config.get('identity_group')
         
         
         print(f"Base URL: {base_url}")
         print(f"Agent ARN: {agent_arn}")
         print(f"Session ID: {agent_session_id}")
+        print(f"Going to use the following identity provider: {identity_provider}")
         
         # ---- A2A Agent metadata (Card + Skills) from config ----
         print("Setting up agent capabilities and skills...")
@@ -101,14 +103,15 @@ def main():
         agent_card = AgentCard(
             name=config['agent_metadata']['name'],
             description=config['agent_metadata']['description'],
-            url=f"http://{host}:{port}/",
+            url=base_url,
             version=config['agent_metadata']['version'],
             defaultInputModes=supported_ct,
             defaultOutputModes=supported_ct,
             capabilities=capabilities,
             skills=skills,
+            identity_provider=identity_provider,
         )
-        print(f"Agent card created: {agent_card.name} v{agent_card.version}")
+        print(f"Agent card created: {agent_card}")
 
         # ---- Wire executor into the A2A app ----
         print("Initializing agent executor and request handler...")
@@ -124,6 +127,7 @@ def main():
                 scope=scope,
                 discovery_url=discovery_url,
                 stream=config['executor_config']['stream'],
+                identity_provider=identity_provider,
             ),
             task_store=InMemoryTaskStore(),
         )
