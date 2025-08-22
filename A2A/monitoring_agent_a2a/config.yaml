@@ -1,0 +1,113 @@
+# Agent Configuration File
+# This file contains all configuration for the A2A Monitoring Agent
+
+# Agent card information for registration and identification
+agent_card_info:
+  # Identity group containing OAuth client information
+  identity_group: monitoring-agent
+  # Agent ARN from bedrock agentcore.yaml file
+  agent_arn: arn:aws:bedrock-agentcore:us-west-2:218208277580:runtime/monitoring_agent-IdA4di8aOj
+  # Agent tags for categorization
+  agent_tags:
+    - monitoring
+    - aws
+    - cloudwatch
+    - agentcore
+
+# Server configuration
+server:
+  # Default host and port for the A2A server
+  default_host: localhost
+  default_port: 10004
+
+# Agent metadata for A2A registration
+agent_metadata:
+  name: "Monitoring Agent (AgentCore)"
+  description: "Routes requests to a Bedrock AgentCore runtime that monitors AWS logs/metrics and creates Jira tickets."
+  version: "1.0.0"
+  
+  # Agent capabilities
+  capabilities:
+    streaming: true
+    push_notifications: true
+  
+  # Supported content types
+  supported_content_types:
+    - "text/plain"
+
+# Agent skills definition
+agent_skills:
+  - id: "monitor_cloudwatch"
+    name: "CloudWatch Monitor"
+    description: "Scan AWS logs/metrics for bedrock logs."
+    tags:
+      - monitoring
+      - cloudwatch
+      - metrics
+    examples:
+      - "Check errors for service X in us-west-2 over the last 2 hours"
+      - "List recent high-latency alarms in prod"
+  
+  - id: "log_root_cause"
+    name: "Log-based Diagnostics"
+    description: "Perform log triage to suggest likely root causes."
+    tags:
+      - diagnostics
+      - logs
+      - triage
+    examples:
+      - "Can you list some of the alarms for EC2 instances and why?"
+  
+  - id: "create_jira_tickets"
+    name: "Create Jira tickets"
+    description: "For issues and customer queries, create JIRA tickets"
+    tags:
+      - jira
+      - ticket
+      - remediation
+    examples:
+      - "Can you create a Jira ticket for issue XYZ?"
+
+# Required environment variables (for documentation)
+required_env_vars:
+  - name: "A2A_GATEWAY_BASE_URL"
+    description: "Base URL for the A2A gateway (e.g., https://<gateway-domain>/runtime)"
+    example: "https://gateway.example.com/runtime"
+  
+  - name: "A2A_AGENT_ARN"
+    description: "ARN of the Bedrock AgentCore runtime"
+    example: "arn:aws:bedrock-agentcore:us-west-2:123456789012:runtime/monitoring_agent-xyz"
+  
+  - name: "A2A_AGENT_SESSION_ID"
+    description: "Session ID for the agent"
+    example: "session-123"
+  
+  - name: "A2A_USER_POOL_ID"
+    description: "Cognito User Pool ID"
+    example: "us-west-2_aBcDeFgHi"
+  
+  - name: "A2A_CLIENT_ID"
+    description: "OAuth client ID"
+    example: "1234567890abcdef"
+  
+  - name: "A2A_CLIENT_SECRET"
+    description: "OAuth client secret"
+    example: "secret123"
+  
+  - name: "A2A_OAUTH_SCOPE"
+    description: "OAuth scope for gateway access"
+    example: "monitoring-agentcore-gateway-id/gateway:read monitoring-agentcore-gateway-id/gateway:write"
+
+# Optional environment variables with defaults
+optional_env_vars:
+  - name: "A2A_HOST"
+    description: "Host for the A2A server"
+    default: "localhost"
+  
+  - name: "A2A_PORT"
+    description: "Port for the A2A server"
+    default: "10004"
+
+# Executor configuration
+executor_config:
+  stream: true  # Enable streaming for AgentCore executor

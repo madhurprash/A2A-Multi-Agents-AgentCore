@@ -81,7 +81,7 @@ class MonitoringAgentCoreExecutor(AgentExecutor):
         if self._token_cache.valid(now_ts):
             return self._token_cache.token  # type: ignore
 
-        tok = get_token(self.user_pool_id, self.client_id, self.client_secret, self.scope)
+        tok = get_token(self.user_pool_id, self.client_id, self.client_secret, self.scope, self.)
         if "access_token" not in tok:
             logger.error("Token fetch failed: %s", {k: tok.get(k) for k in ("error", "error_description")})
             raise ServerError(error=InternalError())
