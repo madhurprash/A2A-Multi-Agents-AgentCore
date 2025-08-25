@@ -1,3 +1,4 @@
+# this is the main file for the remediation agent
 import os
 import sys
 import yaml
@@ -12,7 +13,7 @@ from a2a.server.request_handlers import DefaultRequestHandler
 from a2a.server.tasks import InMemoryTaskStore
 from a2a.types import AgentCapabilities, AgentCard, AgentSkill
 from utils import get_agent_config
-from agent_executer import MonitoringAgentCoreExecutor
+from agent_executer import RemediationAgentCoreExecutor
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
@@ -39,8 +40,8 @@ def load_config() -> dict:
         raise MissingConfigError(f"Error parsing config file: {e}")
 
 def main():
-    """Starts the AgentCore Monitoring Agent A2A server."""
-    print("Starting AgentCore Monitoring Agent A2A server...")
+    """Starts the AgentCore Remediation Agent A2A server."""
+    print("Starting AgentCore Remediation Agent A2A server...")
     
     # Load configuration
     print("Loading configuration from config.yaml...")
@@ -115,14 +116,14 @@ def main():
         print("Initializing agent executor and request handler...")
         httpx_client = httpx.AsyncClient()
         request_handler = DefaultRequestHandler(
-            agent_executor=MonitoringAgentCoreExecutor(
+            agent_executor=RemediationAgentCoreExecutor(
                 base_url=base_url,
                 agent_arn=agent_arn,
                 agent_session_id=agent_session_id,
                 user_pool_id=user_pool_id,
                 client_id=client_id,
                 client_secret=client_secret,
-                scope='monitoring-agentcore-gateway-id/gateway:read monitoring-agentcore-gateway-id/gateway:write',
+                scope='operations-agentcore-gateway-id/gateway:read operations-agentcore-gateway-id/gateway:write',
                 discovery_url=discovery_url,
                 identity_provider=identity_provider,
             ),

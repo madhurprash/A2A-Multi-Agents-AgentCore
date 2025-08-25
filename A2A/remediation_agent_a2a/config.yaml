@@ -1,0 +1,57 @@
+# Agent Configuration File
+# This file contains all configuration for the A2A Remediation Agent
+
+# Agent card information for registration and identification
+agent_card_info:
+  # Identity group containing OAuth client information
+  identity_group: resource-provider-oauth-client-z89nr
+  # Agent ARN from bedrock agentcore.yaml file
+  agent_arn: arn:aws:bedrock-agentcore:us-west-2:218208277580:runtime/ops_remediation_agent-JZ3Al5FspM
+  # OAuth client ID for the monitoring agent
+  client_id: "27p4n7fn6t5fttt0hif3eehnmr"
+  # OAuth discovery URL for the monitoring agent
+  discovery_url: "https://cognito-idp.us-west-2.amazonaws.com/us-west-2_VveqvN6ar/.well-known/openid-configuration"
+  # Agent tags for categorization
+  agent_tags:
+    - remediation
+    - search
+    - aws documentation
+
+# Server configuration
+server:
+  # Default host and port for the A2A server
+  default_host: localhost
+  default_port: 10003
+
+# Agent metadata for A2A registration
+agent_metadata:
+  name: "Remediation_Agent"
+  description: "Routes requests to a Bedrock AgentCore runtime that remediates for requests using Tavily search for AWS docs or issues."
+  version: "1.0.0"
+  
+  # Agent capabilities
+  capabilities:
+    streaming: true
+    push_notifications: true
+  
+  # Supported content types
+  supported_content_types:
+    - "text/plain"
+
+# Agent skills definition
+agent_skills:
+  - id: "web_search_implementation"
+    name: "Implement Web Search"
+    description: "Uses Tavily's search API to return top web results with snippets."
+    tags:
+      - web search
+      - tavily
+      - solutioning
+    examples:
+      - "Search for how to manage EC2 instance utilization effectively"
+      - "What are the best practices for setting up Agentic AI on AWS"
+
+
+# Executor configuration
+executor_config:
+  stream: true  # Enable streaming for AgentCore executor

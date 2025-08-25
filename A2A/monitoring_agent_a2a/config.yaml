@@ -5,12 +5,14 @@
 agent_card_info:
   # Identity group containing OAuth client information
   identity_group: monitoring-agent
+  # provide the scopes that are required for invoking the agent
+  scope: "monitoring-agentcore-gateway-id/gateway:read monitoring-agentcore-gateway-id/gateway:write"
   # Agent ARN from bedrock agentcore.yaml file
   agent_arn: arn:aws:bedrock-agentcore:us-west-2:218208277580:runtime/monitoring_agent-IdA4di8aOj
   # OAuth client ID for the monitoring agent
-  client_id: "7d9rshmguboh6vt9bqn6et4dtp"
+  client_id: "6jo3iqprnn92afe1fei82o8hle"
   # OAuth discovery URL for the monitoring agent
-  discovery_url: "https://cognito-idp.us-west-2.amazonaws.com/us-west-2_6cWXWAhF6/.well-known/openid_configuration"
+  discovery_url: "https://cognito-idp.us-west-2.amazonaws.com/us-west-2_4tapKqA3u/.well-known/openid-configuration"
   # Agent tags for categorization
   agent_tags:
     - monitoring
@@ -26,7 +28,7 @@ server:
 
 # Agent metadata for A2A registration
 agent_metadata:
-  name: "Monitoring Agent (AgentCore)"
+  name: "Monitoring_Agent"
   description: "Routes requests to a Bedrock AgentCore runtime that monitors AWS logs/metrics and creates Jira tickets."
   version: "1.0.0"
   
@@ -43,40 +45,137 @@ agent_metadata:
 agent_skills:
   - id: "monitor_cloudwatch"
     name: "CloudWatch Monitor"
-    description: "Scan AWS logs/metrics for bedrock logs."
+    description: "Scan AWS logs/metrics for service monitoring and analysis."
     tags:
       - monitoring
       - cloudwatch
       - metrics
+      - aws
     examples:
       - "Check errors for service X in us-west-2 over the last 2 hours"
       - "List recent high-latency alarms in prod"
-  
-  - id: "log_root_cause"
-    name: "Log-based Diagnostics"
-    description: "Perform log triage to suggest likely root causes."
+      - "Monitor Lambda function performance"
+      - "Get CloudWatch alarms for RDS service"
+
+  - id: "cloudwatch_dashboard_management"
+    name: "CloudWatch Dashboard Operations"
+    description: "List, analyze, and summarize CloudWatch dashboards across AWS accounts."
+    tags:
+      - dashboards
+      - cloudwatch
+      - visualization
+      - aws
+    examples:
+      - "List all CloudWatch dashboards in the account"
+      - "Get summary of production dashboard"
+      - "Show me the configuration of the main monitoring dashboard"
+      - "What dashboards are available for cross-account monitoring?"
+
+  - id: "log_analysis_and_diagnostics"
+    name: "Log Analysis & Diagnostics"
+    description: "Perform comprehensive log analysis, pattern detection, and root cause analysis across AWS services."
     tags:
       - diagnostics
       - logs
-      - triage
+      - analysis
+      - patterns
+      - troubleshooting
     examples:
-      - "Can you list some of the alarms for EC2 instances and why?"
-  
-  - id: "create_jira_tickets"
-    name: "Create Jira tickets"
-    description: "For issues and customer queries, create JIRA tickets"
+      - "Analyze log patterns for errors in the application log group"
+      - "Find anomalies in recent Lambda execution logs"
+      - "Identify error trends across all service log groups"
+      - "Perform root cause analysis on recent service failures"
+
+  - id: "cross_account_monitoring"
+    name: "Cross-Account AWS Access"
+    description: "Setup and manage cross-account access for monitoring AWS resources across multiple accounts."
     tags:
+      - cross-account
+      - iam
+      - security
+      - multi-account
+      - aws
+    examples:
+      - "Setup cross-account access for production monitoring"
+      - "Verify access to staging account logs"
+      - "Configure monitoring role for account 123456789"
+      - "Check cross-account permissions for CloudWatch access"
+
+  - id: "service_specific_monitoring"
+    name: "Service-Specific Monitoring"
+    description: "Monitor and analyze specific AWS services including Lambda, EC2, RDS, EKS, and more."
+    tags:
+      - service-monitoring
+      - lambda
+      - ec2
+      - rds
+      - eks
+      - aws-services
+    examples:
+      - "Get recent logs for Lambda service"
+      - "Check EC2 instance health and alarms"
+      - "Monitor RDS database performance"
+      - "Analyze EKS cluster logs for issues"
+      - "Fetch CloudWatch logs for specific service"
+
+  - id: "log_group_management"
+    name: "Log Group Operations"
+    description: "List, analyze, and manage CloudWatch log groups across AWS infrastructure."
+    tags:
+      - log-groups
+      - cloudwatch-logs
+      - management
+      - aws
+    examples:
+      - "List all CloudWatch log groups in the account"
+      - "Analyze specific log group for error patterns"
+      - "Show log group retention policies"
+      - "Find log groups with high volume"
+
+  - id: "alarm_management"
+    name: "CloudWatch Alarm Management"
+    description: "Monitor, analyze, and manage CloudWatch alarms for various AWS services."
+    tags:
+      - alarms
+      - alerts
+      - monitoring
+      - notifications
+      - aws
+    examples:
+      - "Get all alarms for Lambda functions"
+      - "List critical alarms currently firing"
+      - "Show alarm history for EC2 service"
+      - "Check alarm thresholds for RDS instances"
+
+  - id: "incident_management"
+    name: "Incident Management & Ticketing"
+    description: "Create and manage incident tickets in Jira for tracking issues and resolutions."
+    tags:
+      - incident-management
       - jira
-      - ticket
+      - tickets
+      - tracking
       - remediation
     examples:
-      - "Can you create a Jira ticket for issue XYZ?"
+      - "Create a Jira ticket for the current service outage"
+      - "Log incident for high error rate in production"
+      - "Create ticket for database performance issue"
+      - "Generate incident report for recent alarm triggers"
 
-# Required environment variables (for documentation)
-required_env_vars:
-  - name: "A2A_OAUTH_SCOPE"
-    description: "OAuth scope for gateway access"
-    example: "monitoring-agentcore-gateway-id/gateway:read monitoring-agentcore-gateway-id/gateway:write"
+  - id: "comprehensive_monitoring"
+    name: "End-to-End Monitoring"
+    description: "Perform comprehensive monitoring across all AWS services, accounts, and infrastructure components."
+    tags:
+      - comprehensive
+      - end-to-end
+      - infrastructure
+      - monitoring
+      - analysis
+    examples:
+      - "Perform full infrastructure health check"
+      - "Generate comprehensive monitoring report"
+      - "Analyze cross-service dependencies and issues"
+      - "Create complete incident timeline with logs and metrics"
 
 # Executor configuration
 executor_config:

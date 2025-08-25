@@ -41,12 +41,12 @@ class _OAuthTokenCache:
         self.expire_epoch = base + max(1, int(expires_in))
 
 
-class MonitoringAgentCoreExecutor(AgentExecutor):
+class RemediationAgentCoreExecutor(AgentExecutor):
     """
-    A2A executor that fronts a Bedrock AgentCore Runtime (Monitoring agent)
+    A2A executor that fronts a Bedrock AgentCore Runtime (Remediation agent)
     via an AgentCore Gateway protected by a Cognito-backed custom JWT authorizer.
 
-    It mirrors the life-cycle behavior of your Kaitlyn executor:
+    It mirrors the life-cycle behavior of your  executor:
     - submit/start_work
     - stream or single-shot invoke
     - update working/input_required/complete

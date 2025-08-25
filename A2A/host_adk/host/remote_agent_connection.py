@@ -1,3 +1,11 @@
+"""
+This is a class that manages remote connections to agents. This 
+class takes an agent card and an agent URL, and then sets up an HTTP
+client, along with the A2A client set up with the agent card, the agent
+URL. This file then returns the agent and also implements a send message function
+to send messages to the remote agent and returns responses.
+"""
+
 from typing import Callable
 
 import httpx

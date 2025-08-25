@@ -1,6 +1,7 @@
 # This is the host adk agent that is responsible for understanding the other
 # agents in the ecosystem and then invoking the agent that is the most relevant to this
 # use case
+import yaml
 import asyncio
 import json
 import uuid
@@ -19,16 +20,17 @@ from a2a.types import (
     SendMessageSuccessResponse, 
     Task,
 )
-from dotenv import load_dotenv
+from pathlib import Path
 # next, we will import google ADK import statements
 # that will help us build an agent using ADK
 from google.adk import Agent
+from dotenv import load_dotenv
+from google.genai import types
+from google.adk.runners import Runner
+from google.adk.tools.tool_context import ToolContext
+from google.adk.sessions import InMemorySessionService
 from google.adk.artifacts import InMemoryArtifactService
 from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
-from google.adk.runners import Runner
-from google.adk.sessions import InMemorySessionService
-from google.adk.tools.tool_context import ToolContext
-from google.genai import types
 
 # import the remote agent connection
 from .remote_agent_connection import RemoteAgentConnections
@@ -36,6 +38,18 @@ from .remote_agent_connection import RemoteAgentConnections
 load_dotenv()
 nest_asyncio.apply()
 
+def load_config() -> dict:
+    """Load configuration from config.yaml file."""
+    config_path = Path(__file__).parent / 'main_agent.yaml'
+    try:
+        with open(config_path, 'r') as f:
+            return yaml.safe_load(f)
+    except Exception as e:
+        raise e
+    
+config = load_config()
+print(f"Loaded the main agent config file: {json.dumps(config, indent=4)}")
+        
 # create the host agent
 class HostAgent:
     """
@@ -99,10 +113,10 @@ class HostAgent:
 
     def create_agent(self) -> Agent:
         return Agent(
-            model="gemini-2.0-flash",
-            name="Host_Agent",
+            model=config['model_information'].get('model_id'),
+            name=config['model_information'].get('agent_name'),
             instruction=self.root_instruction,
-            description="This Host agent orchestrates requests for incident response logging systems",
+            description=config['model_information'].get('description'),
             tools=[
                 self.send_message,
             ],
@@ -175,14 +189,15 @@ class HostAgent:
         ):
             if event.is_final_response():
                 response = ""
-                if (
-                    event.content
-                    and event.content.parts
-                    and event.content.parts[0].text
-                ):
-                    response = "\n".join(
-                        [p.text for p in event.content.parts if p.text]
-                    )
+                if event.content and event.content.parts:
+                    response_parts = []
+                    for part in event.content.parts:
+                        if part.text:
+                            response_parts.append(part.text)
+                        elif hasattr(part, 'function_call') and part.function_call:
+                            # Handle function call parts appropriately
+                            response_parts.append(f"[Function call: {part.function_call}]")
+                    response = "\n".join(response_parts)
                 yield {
                     "is_task_complete": True,
                     "content": response,
@@ -204,7 +219,7 @@ class HostAgent:
 
         # Simplified task and context ID management
         state = tool_context.state
-        task_id = state.get("task_id", str(uuid.uuid4()))
+        task_id = state.get("task_id")  # Don't generate new UUID for task_id
         context_id = state.get("context_id", str(uuid.uuid4()))
         message_id = str(uuid.uuid4())
 
@@ -213,10 +228,13 @@ class HostAgent:
                 "role": "user",
                 "parts": [{"type": "text", "text": task}],
                 "messageId": message_id,
-                "taskId": task_id,
                 "contextId": context_id,
             },
         }
+        
+        # Only add taskId if it exists (for continuing existing tasks)
+        if task_id:
+            payload["message"]["taskId"] = task_id
 
         message_request = SendMessageRequest(
             id=message_id, params=MessageSendParams.model_validate(payload)
@@ -246,9 +264,8 @@ def _get_initialized_host_agent_sync():
 
     async def _async_main():
         # Hardcoded URLs for the agents
-        agent_urls = [
-            "http://localhost:10004", 
-        ]
+        print(f"Going to connect to agent running on the following ports: {str(config['servers'])}")
+        agent_urls = config['servers']
 
         print("initializing host agent")
         hosting_agent_instance = await HostAgent.create(

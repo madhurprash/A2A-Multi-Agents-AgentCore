@@ -1,0 +1,17 @@
+# this configuration file contains all details that there
+# are to bring in agents from various frameworks
+# locally running as A2A servers on various ports
+# to be exposed to the host or client which in this case
+# is a google ADK agent
+model_information:
+  model_id: gemini-2.0-flash
+  agent_name: Host_Agent
+  description: "This Host agent orchestrates requests for incident response logging systems"
+
+# available agents running on various ports as A2A servers
+servers:
+  # the monitoring agent is running on this 
+  # server
+  - http://localhost:10004
+  # the remediation agent is running on this server
+  - http://localhost:10003
