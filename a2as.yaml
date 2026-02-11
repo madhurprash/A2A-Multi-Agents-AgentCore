@@ -1,0 +1,1068 @@
+manifest:
+  version: "0.1.3"
+  schema: https://a2as.org/cert/schema
+  subject:
+    name: madhurprash/a2a-multi-agents-agentcore
+    source: https://github.com/madhurprash/a2a-multi-agents-agentcore
+    branch: main
+    commit: "abae02b0"
+    scope: [multi-agents/host/__main__.py, multi-agents/host/host_agent.py, multi-agents/invoke_agent.py, multi-agents/monitoring_agent/constants.py,
+      multi-agents/monitoring_agent/gateway_creation/create_gateway.py, multi-agents/monitoring_agent/idp_setup/setup_cognito.py,
+      multi-agents/monitoring_agent/invoke_with_token.py, multi-agents/monitoring_agent/memory_hook.py, multi-agents/monitoring_agent/monitoring_agent.py,
+      multi-agents/monitoring_agent/tools/lambda/lambda_function.py, multi-agents/monitoring_agent/utils.py, multi-agents/ops_orchestrator_agent/__main__.py,
+      multi-agents/ops_orchestrator_agent/constants.py, multi-agents/ops_orchestrator_agent/idp_setup/setup_cognito.py, multi-agents/ops_orchestrator_agent/invoke_with_token.py,
+      multi-agents/ops_orchestrator_agent/openAI_memory_tools.py, multi-agents/ops_orchestrator_agent/ops_remediation_agent.py,
+      multi-agents/ops_orchestrator_agent/utils.py, multi-agents/retrieve_agent_card.py, streamlit_app.py]
+  issued:
+    by: A2AS.org
+    at: '2026-02-11T16:45:55Z'
+    url: https://a2as.org/certified/agents/madhurprash/a2a-multi-agents-agentcore
+  signatures:
+    digest: sha256:NrlmHdyyeh0q-leYamO1Sn24HQfvDt_TMY6CZdhT2Wg
+    key: ed25519:yipjxEIyyd2I8dwHlZisREE-t2c0Yt_lEpTVLVAI_OE
+    sig: ed25519:XGmC6hv2ud9llEBlDIFKHeLSbNj03VFDQMj5R8dabIPPVpHWkDnmgT8q6_BzSAQ8f_xhg215ANBfabybRV5MCQ
+
+agents:
+  agent._create_agent:
+    type: factory
+    models: [get]
+    tools: [send_message_to_agent]
+    params:
+      name: model_config.get(name)
+      instruction: self._get_system_instruction
+      description: Orchestrator agent that routes requests to specialized agents
+      function: _create_agent
+  agent.create_lead_orchestrator_agent:
+    type: factory
+    models: [get]
+    tools: [web_search_impl]
+    params:
+      name: Ops_Orchestrator
+      instructions: OPS_ORCHESTRATOR_AGENT_SYSTEM_PROMPT
+      function: create_lead_orchestrator_agent
+  monitoring_agent:
+    type: instance
+    models: [bedrock_model]
+    tools: [gateway_tools]
+    params:
+      name: monitoring_agent
+      description: A monitoring agent that handles CloudWatch logs, metrics, dashboards, and AWS service monitoring
+      system_prompt: MONITORING_AGENT_SYSTEM_PROMPT
+      hooks: hooks
+      function: initialize_agent_and_server
+
+models:
+  bedrock_model:
+    type: literal
+    agents: [monitoring_agent]
+  get:
+    type: function
+    agents: [agent._create_agent, agent.create_lead_orchestrator_agent]
+    params:
+      wrapper: get
+      arg_0: id
+
+tools:
+  gateway_tools:
+    type: function
+    agents: [monitoring_agent]
+    params:
+      dynamic: "True"
+  send_message_to_agent:
+    type: function
+    agents: [agent._create_agent]
+    params:
+      module: self.send_message_to_agent
+      description: |-
+        Send a message to a remote agent via A2A protocol.
+
+        Args:
+            agent_name: Name of the target agent
+            task: Task description or question for the agent
+            tool_context: Context from Google ADK
+
+        Returns:
+            List of response parts from the agent
+  web_search_impl:
+    type: function
+    agents: [agent.create_lead_orchestrator_agent]
+    params:
+      description: Uses Tavily's search API to return top web results with snippets.
+
+imports:
+  '*': utils.*
+  A2ACardResolver: a2a.client.A2ACardResolver
+  A2AClient: a2a.client.A2AClient
+  A2AServer: strands.multiagent.a2a.server.A2AServer
+  A2AService: a2a_communication_compliant.A2AService
+  A2AStarletteApplication: a2a.server.apps.A2AStarletteApplication
+  AfterInvocationEvent: strands.hooks.AfterInvocationEvent
+  Agent: agents.Agent
+  AgentCapabilities: a2a.types.AgentCapabilities
+  AgentCard: a2a.types.AgentCard
+  AgentExecutor: a2a.server.agent_execution.agent_executor.AgentExecutor
+  AgentInitializedEvent: strands.hooks.AgentInitializedEvent
+  AgentSkill: a2a.types.AgentSkill
+  Any: typing.Any
+  app: monitoring_agent.app
+  argparse: argparse
+  asyncio: asyncio
+  AsyncIterable: typing.AsyncIterable
+  AsyncIterator: typing.AsyncIterator
+  baggage: opentelemetry.baggage
+  base64: base64
+  BedrockAgentCoreApp: bedrock_agentcore.runtime.BedrockAgentCoreApp
+  BedrockModel: strands.models.BedrockModel
+  boto3: boto3
+  botocore: botocore
+  ClientError: botocore.exceptions.ClientError
+  Config: botocore.config.Config
+  context: opentelemetry.context
+  create_cognito_domain: utils.create_cognito_domain
+  create_memory_tools: openAI_memory_tools.create_memory_tools
+  datetime: datetime.datetime
+  DefaultRequestHandler: a2a.server.request_handlers.DefaultRequestHandler
+  Dict: typing.Dict
+  EventQueue: a2a.server.events.event_queue.EventQueue
+  FastAPI: fastapi.FastAPI
+  function_tool: agents.function_tool
+  GatewayClient: bedrock_agentcore_starter_toolkit.operations.gateway.GatewayClient
+  get_access_token: utils.get_access_token
+  get_agent_config: a2a_utils.get_agent_config
+  get_or_create_agentcore_agent: ops_remediation_agent.get_or_create_agentcore_agent
+  get_or_create_m2m_client: utils.get_or_create_m2m_client
+  get_or_create_resource_server: utils.get_or_create_resource_server
+  get_or_create_user_pool: utils.get_or_create_user_pool
+  get_token: utils.get_token
+  glob: glob
+  HookProvider: strands.hooks.HookProvider
+  HookRegistry: strands.hooks.HookRegistry
+  HostAgent: host_agent.HostAgent
+  httpx: httpx
+  InMemoryArtifactService: google.adk.artifacts.InMemoryArtifactService
+  InMemoryMemoryService: google.adk.memory.in_memory_memory_service.InMemoryMemoryService
+  InMemorySessionService: google.adk.sessions.InMemorySessionService
+  InMemoryTaskStore: a2a.server.tasks.InMemoryTaskStore
+  interactive_cli: monitoring_agent.interactive_cli
+  json: json
+  JSONResponse: starlette.responses.JSONResponse
+  List: typing.List
+  load_config: utils.load_config
+  load_dotenv: dotenv.load_dotenv
+  logger: monitoring_agent.logger
+  logging: logging
+  MCPClient: strands.tools.mcp.mcp_client.MCPClient
+  MemoryClient: bedrock_agentcore.memory.MemoryClient
+  Message: a2a.types.Message
+  MessageAddedEvent: strands.hooks.MessageAddedEvent
+  MessageSendParams: a2a.types.MessageSendParams
+  MonitoringMemoryHooks: memory_hook.MonitoringMemoryHooks
+  nest_asyncio: nest_asyncio
+  OpsOrchestratorAgentCoreExecutor: a2a_agent_executor.OpsOrchestratorAgentCoreExecutor
+  Optional: typing.Optional
+  os: os
+  parse: urllib.parse
+  parse_arguments: monitoring_agent.parse_arguments
+  Path: pathlib.Path
+  quote: urllib.parse.quote
+  re: re
+  REGION_NAME: constants.REGION_NAME
+  RequestContext: a2a.server.agent_execution.context.RequestContext
+  requests: requests
+  Role: a2a.types.Role
+  RunContextWrapper: agents.RunContextWrapper
+  Runner: agents.Runner
+  SendMessageRequest: a2a.types.SendMessageRequest
+  SendMessageResponse: a2a.types.SendMessageResponse
+  SendMessageSuccessResponse: a2a.types.SendMessageSuccessResponse
+  Session: boto3.session.Session
+  setup_cognito_user_pool: utils.setup_cognito_user_pool
+  shutil: shutil
+  st: streamlit
+  StrategyType: bedrock_agentcore.memory.constants.StrategyType
+  streamablehttp_client: mcp.client.streamable_http.streamablehttp_client
+  subprocess: subprocess
+  sys: sys
+  Task: a2a.types.Task
+  TaskState: a2a_communication_compliant.TaskState
+  TaskStatus: a2a.types.TaskStatus
+  TaskStatusUpdateEvent: a2a.types.TaskStatusUpdateEvent
+  TavilyClient: tavily.TavilyClient
+  TextPart: a2a.types.TextPart
+  time: time
+  timedelta: datetime.timedelta
+  timezone: datetime.timezone
+  ToolContext: google.adk.tools.tool_context.ToolContext
+  traceback: traceback
+  types: google.genai.types
+  Union: typing.Union
+  urlparse: urllib.parse.urlparse
+  urlunparse: urllib.parse.urlunparse
+  uuid: uuid
+  uuid4: uuid.uuid4
+  uvicorn: uvicorn
+  yaml: yaml
+
+functions:
+  __init__:
+    type: sync
+    module: multi-agents.monitoring_agent.tools.lambda.lambda_function
+    args: [self, username, api_token, instance_url, is_cloud]
+  _async_main:
+    type: async
+    module: multi-agents.host.host_agent
+  _call_agent:
+    type: async
+    module: multi-agents.ops_orchestrator_agent.ops_remediation_agent
+    args: [agent, prompt]
+  _create_agent:
+    type: sync
+    module: multi-agents.host.host_agent
+    args: [self]
+    params:
+      returns: Agent
+  _discover_remote_agents:
+    type: async
+    module: multi-agents.host.host_agent
+    args: [self]
+  _extract_runtime_url:
+    type: sync
+    module: multi-agents.host.host_agent
+    args: [runtime_arn, region]
+    params:
+      returns: str
+  _fetch_ssm_parameter:
+    type: sync
+    module: multi-agents.host.host_agent
+    args: [parameter_path, region]
+    params:
+      returns: dict
+  _get_agent:
+    type: async
+    module: multi-agents.ops_orchestrator_agent.ops_remediation_agent
+    args: [self]
+  _get_bearer_token:
+    type: async
+    module: multi-agents.host.host_agent
+    args: [idp_config]
+    params:
+      returns: str
+  _get_initialized_host_agent_sync:
+    type: sync
+    module: multi-agents.host.host_agent
+    params:
+      returns: Agent
+  _get_memory_tools:
+    type: sync
+    module: multi-agents.ops_orchestrator_agent.ops_remediation_agent
+  _get_namespaces:
+    type: sync
+    module: multi-agents.ops_orchestrator_agent.openAI_memory_tools
+    args: [self]
+    params:
+      returns: Dict
+  _get_system_instruction:
+    type: sync
+    module: multi-agents.host.host_agent
+    args: [self, context]
+    params:
+      returns: str
+  _load_config:
+    type: sync
+    module: multi-agents.host.host_agent
+    params:
+      returns: dict
+  _main:
+    type: async
+    module: multi-agents.host.__main__
+  _normalize_cognito_token_endpoint:
+    type: sync
+    module: multi-agents.monitoring_agent.utils
+    args: [url]
+    params:
+      returns: str
+  _parse_arguments:
+    type: sync
+    module: multi-agents.ops_orchestrator_agent.ops_remediation_agent
+  agents_page:
+    type: sync
+    module: streamlit_app
+  cancel:
+    type: async
+    module: multi-agents.ops_orchestrator_agent.ops_remediation_agent
+    args: [self, context, event_queue]
+    params:
+      returns: None
+  chat_page:
+    type: sync
+    module: streamlit_app
+  check_existing_target:
+    type: sync
+    module: multi-agents.ops_orchestrator_agent.utils
+    args: [gateway_id, target_name]
+  close:
+    type: async
+    module: multi-agents.host.host_agent
+    args: [self]
+  create:
+    type: async
+    module: multi-agents.host.host_agent
+    args: [cls]
+  create_agentcore_gateway_role:
+    type: sync
+    module: multi-agents.ops_orchestrator_agent.utils
+    args: [gateway_name]
+  create_agentcore_gateway_role_s3_smithy:
+    type: sync
+    module: multi-agents.ops_orchestrator_agent.utils
+    args: [gateway_name]
+  create_agentcore_role:
+    type: sync
+    module: multi-agents.ops_orchestrator_agent.utils
+    args: [agent_name]
+  create_cognito_domain:
+    type: sync
+    module: multi-agents.ops_orchestrator_agent.utils
+    args: [user_pool_id, domain_name, region]
+    params:
+      returns: Dict
+  create_gateway_lambda:
+    type: sync
+    module: multi-agents.ops_orchestrator_agent.utils
+    args: [lambda_function_code_path]
+    params:
+      returns: dict
+  create_gateway_target:
+    type: sync
+    module: multi-agents.ops_orchestrator_agent.utils
+    args: [target_type, gateway_id, target_name, target_descr, target_config, oauth_provider_arn, oauth_scopes]
+  create_lead_orchestrator_agent:
+    type: async
+    module: multi-agents.ops_orchestrator_agent.ops_remediation_agent
+    args: [memory_tools]
+  create_memory_tools:
+    type: sync
+    module: multi-agents.ops_orchestrator_agent.openAI_memory_tools
+    args: [memory_id, client, actor_id, session_id]
+  create_oauth2_credential_provider:
+    type: sync
+    module: multi-agents.ops_orchestrator_agent.utils
+    args: [provider_name, auth_config]
+    params:
+      returns: str
+  create_openapi_oauth_target:
+    type: sync
+    module: multi-agents.ops_orchestrator_agent.utils
+    args: [target, gateway_id, bucket_name]
+    params:
+      returns: Optional[Dict]
+  create_openapi_targets_with_oauth:
+    type: sync
+    module: multi-agents.ops_orchestrator_agent.utils
+    args: [gateway_id, bucket_name]
+    params:
+      returns: List[Dict]
+  create_streamable_http_transport:
+    type: sync
+    module: multi-agents.monitoring_agent.monitoring_agent
+  create_target_config:
+    type: sync
+    module: multi-agents.ops_orchestrator_agent.utils
+    args: [target_info]
+  create_targets_from_config:
+    type: sync
+    module: multi-agents.ops_orchestrator_agent.utils
+    args: [gateway_id, gateway_config, bucket_name]
+  delete_all_gateways:
+    type: sync
+    module: multi-agents.ops_orchestrator_agent.utils
+    args: [gateway_client]
+  delete_gateway:
+    type: sync
+    module: multi-agents.ops_orchestrator_agent.utils
+    args: [gateway_client, gatewayId]
+  discover:
+    type: async
+    module: multi-agents.host.host_agent
+    args: [self]
+  execute:
+    type: async
+    module: multi-agents.ops_orchestrator_agent.ops_remediation_agent
+    args: [self, context, event_queue]
+    params:
+      returns: None
+  fetch_agent_card:
+    type: sync
+    module: multi-agents.retrieve_agent_card
+    args: [agent_arn, bearer_token, config_path, region]
+    params:
+      returns: Optional[Dict]
+  get_a2a_service:
+    type: sync
+    module: streamlit_app
+  get_access_token:
+    type: sync
+    module: multi-agents.monitoring_agent.utils
+    params:
+      returns: Dict
+  get_api_key:
+    type: sync
+    module: multi-agents.ops_orchestrator_agent.utils
+    args: [key_name, secret_name, region_name]
+    params:
+      returns: str
+  get_bearer_token_from_config:
+    type: sync
+    module: multi-agents.retrieve_agent_card
+    args: [config_path]
+    params:
+      returns: Optional[str]
+  get_cross_account_client:
+    type: sync
+    module: multi-agents.monitoring_agent.tools.lambda.lambda_function
+    args: [service, account_id, role_name]
+  get_http_client_config:
+    type: sync
+    module: multi-agents.invoke_agent
+    args: [region]
+    params:
+      returns: Dict
+  get_lead_orchestrator:
+    type: async
+    module: multi-agents.ops_orchestrator_agent.ops_remediation_agent
+  get_namespaces:
+    type: sync
+    module: multi-agents.monitoring_agent.memory_hook
+    args: [mem_client, memory_id]
+    params:
+      returns: Dict
+  get_or_create_m2m_client:
+    type: sync
+    module: multi-agents.ops_orchestrator_agent.utils
+    args: [cognito, user_pool_id, CLIENT_NAME, RESOURCE_SERVER_ID]
+  get_or_create_resource_server:
+    type: sync
+    module: multi-agents.ops_orchestrator_agent.utils
+    args: [cognito, user_pool_id, RESOURCE_SERVER_ID, RESOURCE_SERVER_NAME, SCOPES]
+  get_or_create_user_pool:
+    type: sync
+    module: multi-agents.ops_orchestrator_agent.utils
+    args: [cognito, USER_POOL_NAME, CREATE_USER_POOL]
+  get_parameter_from_ssm:
+    type: sync
+    module: multi-agents.ops_orchestrator_agent.utils
+    args: [parameter_name, region_name, decrypt]
+    params:
+      returns: str
+  get_recent_conversation_history:
+    type: tool
+    module: multi-agents.ops_orchestrator_agent.openAI_memory_tools
+    args: [k_turns]
+    params:
+      returns: str
+  get_secret:
+    type: sync
+    module: multi-agents.ops_orchestrator_agent.utils
+    args: [secret_name, region_name]
+    params:
+      returns: str
+  get_session_inputs:
+    type: sync
+    module: multi-agents.invoke_agent
+  get_token:
+    type: sync
+    module: multi-agents.ops_orchestrator_agent.utils
+    args: [user_pool_id, client_id, client_secret, scope_string, REGION]
+    params:
+      returns: dict
+  handle_analyze_log_group:
+    type: sync
+    module: multi-agents.monitoring_agent.tools.lambda.lambda_function
+    args: [event]
+  handle_create_jira_ticket:
+    type: sync
+    module: multi-agents.monitoring_agent.tools.lambda.lambda_function
+    args: [event]
+  handle_cross_account_setup:
+    type: sync
+    module: multi-agents.monitoring_agent.tools.lambda.lambda_function
+    args: [event]
+  handle_fetch_logs:
+    type: sync
+    module: multi-agents.monitoring_agent.tools.lambda.lambda_function
+    args: [event]
+  handle_get_alarms:
+    type: sync
+    module: multi-agents.monitoring_agent.tools.lambda.lambda_function
+    args: [event]
+  handle_get_dashboard_summary:
+    type: sync
+    module: multi-agents.monitoring_agent.tools.lambda.lambda_function
+    args: [event]
+  handle_list_dashboards:
+    type: sync
+    module: multi-agents.monitoring_agent.tools.lambda.lambda_function
+    args: [event]
+  handle_list_log_groups:
+    type: sync
+    module: multi-agents.monitoring_agent.tools.lambda.lambda_function
+    args: [event]
+  health_check:
+    type: async
+    module: multi-agents.ops_orchestrator_agent.__main__
+  home_page:
+    type: sync
+    module: streamlit_app
+  initialize_agent_and_server:
+    type: sync
+    module: multi-agents.monitoring_agent.monitoring_agent
+  initialize_session_state:
+    type: sync
+    module: streamlit_app
+  invoke_agent_http:
+    type: sync
+    module: multi-agents.invoke_agent
+    args: [config, prompt, verbose]
+    params:
+      returns: Dict
+  invoke_monitoring_agent:
+    type: sync
+    module: multi-agents.invoke_agent
+    args: [agent_arn, region, prompt, qualifier, stream]
+  issue_create:
+    type: sync
+    module: multi-agents.monitoring_agent.tools.lambda.lambda_function
+    args: [self, fields_json]
+  lambda_handler:
+    type: sync
+    module: multi-agents.monitoring_agent.tools.lambda.lambda_function
+    args: [event, context]
+  list_local_tools:
+    type: tool
+    module: multi-agents.ops_orchestrator_agent.ops_remediation_agent
+    params:
+      returns: list
+  load_api_keys_from_ssm:
+    type: sync
+    module: multi-agents.ops_orchestrator_agent.utils
+    args: [config_data]
+    params:
+      returns: dict
+  load_config:
+    type: sync
+    module: multi-agents.ops_orchestrator_agent.__main__
+    params:
+      returns: dict
+  load_custom_css:
+    type: sync
+    module: streamlit_app
+  main:
+    type: sync
+    module: multi-agents.ops_orchestrator_agent.__main__
+  multi_turn_conversation:
+    type: sync
+    module: multi-agents.invoke_agent
+    args: [agent_arn, region, qualifier]
+  multi_turn_http_conversation:
+    type: sync
+    module: multi-agents.invoke_agent
+    args: [config]
+  on_agent_initialized:
+    type: sync
+    module: multi-agents.monitoring_agent.memory_hook
+    args: [self, event]
+  parse_arguments:
+    type: sync
+    module: multi-agents.ops_orchestrator_agent.ops_remediation_agent
+  ping:
+    type: async
+    module: multi-agents.ops_orchestrator_agent.ops_remediation_agent
+    args: [request]
+  read_prompt_file:
+    type: sync
+    module: multi-agents.ops_orchestrator_agent.ops_remediation_agent
+    args: [filepath]
+    params:
+      returns: str
+  reauthenticate_user:
+    type: sync
+    module: multi-agents.monitoring_agent.utils
+    args: [client_id]
+  register_hooks:
+    type: sync
+    module: multi-agents.monitoring_agent.memory_hook
+    args: [self, registry]
+    params:
+      returns: None
+  required_env:
+    type: sync
+    module: multi-agents.ops_orchestrator_agent.__main__
+    args: [name]
+    params:
+      returns: str
+  retrieve_monitoring_context:
+    type: tool
+    module: multi-agents.ops_orchestrator_agent.openAI_memory_tools
+    args: [query, context_type, top_k]
+    params:
+      returns: str
+  run_a2a_server:
+    type: sync
+    module: multi-agents.ops_orchestrator_agent.ops_remediation_agent
+    args: [host, port]
+  run_server:
+    type: sync
+    module: multi-agents.monitoring_agent.monitoring_agent
+  save_cognito_config:
+    type: sync
+    module: multi-agents.monitoring_agent.idp_setup.setup_cognito
+    args: [cognito_config, output_file]
+    params:
+      returns: bool
+  save_custom_memory:
+    type: tool
+    module: multi-agents.ops_orchestrator_agent.openAI_memory_tools
+    args: [content, memory_type]
+    params:
+      returns: str
+  save_interaction_to_memory:
+    type: tool
+    module: multi-agents.ops_orchestrator_agent.openAI_memory_tools
+    args: [user_message, assistant_response]
+    params:
+      returns: str
+  save_monitoring_interaction:
+    type: sync
+    module: multi-agents.monitoring_agent.memory_hook
+    args: [self, event]
+  search_memory_by_namespace:
+    type: tool
+    module: multi-agents.ops_orchestrator_agent.openAI_memory_tools
+    args: [query, namespace_type, top_k]
+    params:
+      returns: str
+  send_message:
+    type: async
+    module: multi-agents.host.host_agent
+    args: [self, message_request]
+    params:
+      returns: SendMessageResponse
+  send_message_to_agent:
+    type: async
+    module: multi-agents.host.host_agent
+    args: [self, agent_name, task, tool_context]
+    params:
+      returns: List[Dict]
+  set_session_context:
+    type: sync
+    module: multi-agents.ops_orchestrator_agent.ops_remediation_agent
+    args: [session_id]
+  setup_cognito_user_pool:
+    type: sync
+    module: multi-agents.ops_orchestrator_agent.utils
+  setup_github_oauth2_provider:
+    type: sync
+    module: multi-agents.ops_orchestrator_agent.utils
+    params:
+      returns: str
+  setup_jira_oauth2_provider:
+    type: sync
+    module: multi-agents.ops_orchestrator_agent.utils
+    params:
+      returns: str
+  stream:
+    type: async
+    module: multi-agents.host.host_agent
+    args: [self, query, session_id]
+    params:
+      returns: AsyncIterable[Dict]
+  upload_smithy_to_s3:
+    type: sync
+    module: multi-agents.ops_orchestrator_agent.utils
+    args: [smithy_file_path, bucket_name, object_key]
+  web_search_impl:
+    type: tool
+    module: multi-agents.ops_orchestrator_agent.ops_remediation_agent
+    args: [query, top_k, recency_days]
+
+variables:
+  AGENTCORE_RUNTIME_URL:
+    type: env
+    params:
+      caller: [os.environ.get]
+      path: [multi-agents.monitoring_agent.monitoring_agent]
+  AWS_DEFAULT_REGION:
+    type: env
+    params:
+      caller: [os.environ.get, os.getenv]
+      path: [multi-agents.ops_orchestrator_agent.utils, multi-agents.invoke_agent]
+  env_var:
+    type: env
+    params:
+      caller: [os.getenv]
+      path: [multi-agents.ops_orchestrator_agent.utils]
+  GITHUB_CLIENT_ID:
+    type: env
+    params:
+      caller: [os.environ.get]
+      path: [multi-agents.ops_orchestrator_agent.utils]
+  GITHUB_CLIENT_SECRET:
+    type: env
+    params:
+      caller: [os.environ.get]
+      path: [multi-agents.ops_orchestrator_agent.utils]
+  HOST:
+    type: env
+    params:
+      caller: [os.environ.get]
+      path: [multi-agents.monitoring_agent.monitoring_agent]
+  JIRA_API_KEY:
+    type: env
+    params:
+      caller: [os.environ]
+  JIRA_API_TOKEN:
+    type: env
+    params:
+      caller: [os.environ.get]
+      path: [multi-agents.monitoring_agent.tools.lambda.lambda_function]
+  JIRA_CLIENT_ID:
+    type: env
+    params:
+      caller: [os.environ.get]
+      path: [multi-agents.ops_orchestrator_agent.utils]
+  JIRA_CLIENT_SECRET:
+    type: env
+    params:
+      caller: [os.environ.get]
+      path: [multi-agents.ops_orchestrator_agent.utils]
+  JIRA_CLOUD:
+    type: env
+    params:
+      caller: [os.environ.get]
+      path: [multi-agents.monitoring_agent.tools.lambda.lambda_function]
+  JIRA_DOMAIN:
+    type: env
+    params:
+      caller: [os.environ.get]
+      path: [multi-agents.ops_orchestrator_agent.utils]
+  JIRA_INSTANCE_URL:
+    type: env
+    params:
+      caller: [os.environ.get]
+      path: [multi-agents.monitoring_agent.tools.lambda.lambda_function]
+  JIRA_USERNAME:
+    type: env
+    params:
+      caller: [os.environ.get]
+      path: [multi-agents.monitoring_agent.tools.lambda.lambda_function]
+  key_name:
+    type: env
+    params:
+      caller: [os.getenv]
+      path: [multi-agents.ops_orchestrator_agent.utils]
+  MONITORING_GATEWAY_CREDENTIALS_PATH:
+    type: env
+  name:
+    type: env
+    params:
+      caller: [os.getenv]
+      path: [multi-agents.ops_orchestrator_agent.__main__]
+  OPENAI_API_KEY:
+    type: env
+    params:
+      caller: [os.environ]
+  OPENAI_ENABLE_TRACING:
+    type: env
+    params:
+      caller: [os.environ]
+  OPS_ORCHESTRATOR_GATEWAY_CREDENTIALS_PATH:
+    type: env
+  PORT:
+    type: env
+    params:
+      caller: [os.environ.get]
+      path: [multi-agents.monitoring_agent.monitoring_agent]
+  PROJECT_KEY:
+    type: env
+    params:
+      caller: [os.environ.get]
+      path: [multi-agents.monitoring_agent.tools.lambda.lambda_function]
+  TAVILY_API_KEY:
+    type: env
+    params:
+      caller: [os.environ]
+  var:
+    type: env
+    params:
+      caller: [os.getenv]
+      path: [multi-agents.monitoring_agent.monitoring_agent, multi-agents.ops_orchestrator_agent.ops_remediation_agent]
+
+files:
+  a2a_config.yaml:
+    type: literal
+    actions: [read]
+    params:
+      caller: [load_config]
+      path: [Path.parent]
+  chat_report_agent_memory.txt:
+    type: pattern
+    actions: [read]
+    params:
+      caller: [os.path.join]
+      pattern: [OPS_ORCHESTRATOR_AGENT_MEMORY_PROMPT_FPATH, chat_report_agent_memory.txt]
+  config.yaml:
+    type: literal
+    actions: [read]
+    params:
+      caller: [_load_config]
+      path: [Path.parent]
+  config_file:
+    type: variable
+    actions: [read]
+    params:
+      caller: [Path]
+  config_path:
+    type: variable
+    actions: [read, write]
+    params:
+      caller: [open, yaml.safe_load, json.load]
+      alias: [f]
+  config_struct_path:
+    type: variable
+    actions: [read]
+    params:
+      caller: [os.path.abspath, open, json.load]
+  custom_consolidation_prompt.txt:
+    type: pattern
+    actions: [read]
+    params:
+      caller: [os.path.join]
+      pattern: [MONITORING_AGENT_MEMORY_PROMPT_FPATH, custom_consolidation_prompt.txt]
+  custom_extraction_prompt.txt:
+    type: pattern
+    actions: [read]
+    params:
+      caller: [os.path.join]
+      pattern: [MONITORING_AGENT_MEMORY_PROMPT_FPATH, custom_extraction_prompt.txt]
+  custom_extraction_prompt_lead_agent.txt:
+    type: pattern
+    actions: [read]
+    params:
+      caller: [os.path.join]
+      pattern: [OPS_ORCHESTRATOR_AGENT_MEMORY_PROMPT_FPATH, custom_extraction_prompt_lead_agent.txt]
+  filepath:
+    type: variable
+    actions: [read]
+    params:
+      caller: [open]
+      alias: [f]
+  lambda_function_code_path:
+    type: variable
+    actions: [read]
+    params:
+      caller: [open]
+      alias: [f]
+  lambda_monitoring_tools.json:
+    type: pattern
+    actions: [read]
+    params:
+      caller: [os.path.join]
+      pattern: ["..", tools, lambda_monitoring_tools.json]
+  output_file:
+    type: variable
+    actions: [read]
+    params:
+      caller: [Path]
+  prompt_template_path:
+    type: variable
+    actions: [read]
+    params:
+      caller: [open]
+      alias: [f]
+  smithy_file:
+    type: variable
+    actions: [read]
+    params:
+      caller: [os.path.abspath, os.path.exists, os.path.basename]
+  spec_file:
+    type: variable
+    actions: [read]
+    params:
+      caller: [os.path.exists]
+  ticket_creator_agent_memory.txt:
+    type: pattern
+    actions: [read]
+    params:
+      caller: [os.path.join]
+      pattern: [OPS_ORCHESTRATOR_AGENT_MEMORY_PROMPT_FPATH, ticket_creator_agent_memory.txt]
+  tools_file_path:
+    type: variable
+    actions: [read]
+    params:
+      caller: [open, json.load]
+      alias: [f]
+
+networks:
+  agent_card:
+    type: api
+    actions: [GET]
+    protocols: [http]
+    ports: ["80"]
+    params:
+      caller: [run_a2a_server]
+      pattern: http://{host}:{port}
+  auth_endpoint:
+    type: api
+    actions: [GET]
+    protocols: [https]
+    ports: ["443"]
+    params:
+      pattern: https://{jira_domain}/oauth/authorize
+      caller: [setup_jira_oauth2_provider]
+      dynamic: "True"
+      variable: auth_endpoint
+  bedrock-agentcore.:
+    type: api
+    actions: [GET]
+    urls: ['/{...}']
+    protocols: [https]
+    ports: ["443"]
+    params:
+      pattern: https://bedrock-agentcore.{region}.amazonaws.com
+      caller: [_extract_runtime_url, invoke_agent_http]
+  bedrock-agentcore..1:
+    type: api
+    actions: [GET]
+    urls: ['/{...}']
+    protocols: [https]
+    ports: ["443"]
+    params:
+      caller: [fetch_agent_card]
+  cognito-idp.:
+    type: api
+    actions: [GET]
+    urls: ['/{...}']
+    protocols: [https]
+    ports: ["443"]
+    params:
+      pattern: https://cognito-idp.{region}.amazonaws.com/{user_pool_id}/oauth2/token
+      caller: [get_access_token]
+  domain_url:
+    type: api
+    actions: [GET]
+    protocols: [https]
+    ports: ["443"]
+    params:
+      pattern: https://{domain}.auth.{region}.amazoncognito.com
+      caller: [get_or_create_user_pool]
+      dynamic: "True"
+      variable: domain_url
+  domain_url.1:
+    type: api
+    actions: [GET]
+    protocols: [https]
+    ports: ["443"]
+    params:
+      pattern: https://{existing_domain}.auth.{region}.amazoncognito.com
+      caller: [create_cognito_domain]
+      dynamic: "True"
+      variable: domain_url
+  domain_url.2:
+    type: api
+    actions: [GET]
+    protocols: [https]
+    ports: ["443"]
+    params:
+      pattern: https://{domain_name}.auth.{region}.amazoncognito.com
+      caller: [create_cognito_domain]
+      dynamic: "True"
+      variable: domain_url
+  domain_url.3:
+    type: api
+    actions: [GET]
+    protocols: [https]
+    ports: ["443"]
+    params:
+      pattern: https://{new_domain_name}.auth.{region}.amazoncognito.com
+      caller: [create_cognito_domain]
+      dynamic: "True"
+      variable: domain_url
+  domain_url.4:
+    type: api
+    actions: [GET]
+    protocols: [https]
+    ports: ["443"]
+    params:
+      pattern: https://{existing_domain}.auth.{region}.amazoncognito.com
+      caller: [create_cognito_domain]
+      dynamic: "True"
+      variable: domain_url
+  domain_url.5:
+    type: api
+    actions: [GET]
+    protocols: [https]
+    ports: ["443"]
+    params:
+      pattern: https://{domain_name}.auth.{region}.amazoncognito.com
+      caller: [create_cognito_domain]
+      dynamic: "True"
+      variable: domain_url
+  domain_url.6:
+    type: api
+    actions: [GET]
+    protocols: [https]
+    ports: ["443"]
+    params:
+      pattern: https://{new_domain_name}.auth.{region}.amazoncognito.com
+      caller: [create_cognito_domain]
+      dynamic: "True"
+      variable: domain_url
+  issuer:
+    type: api
+    actions: [GET]
+    protocols: [https]
+    ports: ["443"]
+    params:
+      pattern: https://{jira_domain}
+      caller: [setup_jira_oauth2_provider]
+      dynamic: "True"
+      variable: issuer
+  token_endpoint:
+    type: api
+    actions: [GET]
+    protocols: [https]
+    ports: ["443"]
+    params:
+      pattern: https://{domain}.auth.{region}.amazoncognito.com/oauth2/token
+      caller: [_get_bearer_token, get_access_token]
+      dynamic: "True"
+      variable: token_endpoint
+  token_endpoint.1:
+    type: api
+    actions: [GET]
+    protocols: [https]
+    ports: ["443"]
+    params:
+      pattern: https://{jira_domain}/oauth/token
+      caller: [setup_jira_oauth2_provider]
+      dynamic: "True"
+      variable: token_endpoint
+  url:
+    type: api
+    actions: [GET]
+    protocols: [https]
+    ports: ["443"]
+    params:
+      caller: [get_token]
+      dynamic: "True"
+      variable: url
+  url.1:
+    type: api
+    actions: [GET]
+    protocols: [https]
+    ports: ["443"]
+    params:
+      pattern: https://{domain}.auth.{REGION}.amazoncognito.com/oauth2/token
+      caller: [get_token]
+      dynamic: "True"
+      variable: url
